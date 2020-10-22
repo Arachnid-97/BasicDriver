@@ -1,0 +1,3 @@
+[submodule "OLED12864"]
+	path = OLED12864
+	url = https://github.com/Arachnid-97/OLED12864
