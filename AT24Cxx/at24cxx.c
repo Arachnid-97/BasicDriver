@@ -7,7 +7,8 @@
 /* 注：STM32的硬件 I2C的确有一些 BUG，或者说使用时有很多不方便满足的要求，	\
        比如 DMA加最高中断（不使用该模式容易出现死机） */
 
-/* 是否启用模拟 IIC */
+/* 是否启用模拟 IIC \
+    note: 只适用 7-bit data word address(即标准 I2C) */
 #define USE_SIMULATE_IIC		0
 
 /* 若使用硬件 IIC，建议使用 DMA功能 */
@@ -15,11 +16,8 @@
 
 /* EEPROM读写测试宏 */
 #define _EE_TEST				1
-#define USE_TEST_ADDR			0x0110
+#define USER_TEST_ADDR			68
 
-
-/* 使用 16位地址则定义该宏,否者默认 8位地址 */
-//#define AT24CXX_16BIT_ADDR
 
 /* Uncomment this line to use the default start and end of critical section
    callbacks (it disables then enabled all interrupts) */
@@ -31,6 +29,11 @@
    Or you can comment that line and implement these callbacks into your
    application */
 
+#define _AT24C_DEBUG        1
+#define AT24C_DEBUG_PRINTF(fmt,arg...)      do{\
+                                            if(_AT24C_DEBUG)\
+                                                printf("<<-EEPROM-DEBUG->> < %s >[%d]\n"fmt"\n",__FILE__,__LINE__, ##arg);\
+                                            }while(0)
 
 #define MAX_TIME_OUT		((uint32_t)0x1000)
 #define MAX_LONGTIME_OUT	((uint32_t)(10 * MAX_TIME_OUT))
@@ -52,6 +55,18 @@ static void IIC_DMA_Config( uint32_t pBuffer, uint32_t BufferSize, uint32_t Dire
 
 #endif /* IIC_DMA_ENABLE && 0 == USE_SIMULATE_IIC */
 
+
+__attribute__((weak)) void Delay(uint32_t Cnt)
+{
+    uint8_t i, j;
+
+    while (Cnt--)
+    {
+        for (i = 2; i > 0; i--)
+            for (j = 43; j > 0; j--)
+                continue;
+    }
+}
 
 /************************************************
 函数名称 ： TimeOut_Callback
@@ -82,6 +97,7 @@ void EE_DMA_TxWait(void)
     AT24C_TimeOut = MAX_LONGTIME_OUT;
     while (g_EEData_WritePointer > 0)
     {
+        Delay(3);
         if((AT24C_TimeOut--) == 0) {
             TimeOut_Callback(19);
             return;
@@ -106,6 +122,7 @@ void EE_DMA_RxWait(void)
     AT24C_TimeOut = MAX_LONGTIME_OUT;
     while (g_EEData_ReadPointer > 0)
     {
+        Delay(3);
         if((AT24C_TimeOut--) == 0) {
             TimeOut_Callback(20);
             return;
@@ -125,9 +142,10 @@ void EE_DMA_RxWait(void)
 static uint8_t AT24Cxx_Busy_Wait(void)
 {
     uint8_t temp = 1;
-    __IO uint16_t temp_SR1;
 
 #if (0 == USE_SIMULATE_IIC)
+    __IO uint16_t temp_SR1;
+
     /*!< While the bus is busy */
     AT24C_TimeOut = MAX_LONGTIME_OUT;
     while(I2C_GetFlagStatus(AT24C_I2Cx, I2C_FLAG_BUSY))
@@ -185,6 +203,11 @@ static uint8_t AT24Cxx_Busy_Wait(void)
 *************************************************/
 uint8_t AT24Cxx_Write_Byte( uint8_t Byte, uint16_t Address )
 {
+#ifndef AT24CXX_16BIT_ADDR
+    if(AT24C_MEMORY_CAPACITY > 256)
+        s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+#endif /* AT24CXX_16BIT_ADDR */
+
 #if USE_SIMULATE_IIC
 	return EE_Write_Byte(s_AT24Cxx_Addr, Byte, Address);
 
@@ -279,7 +302,11 @@ uint8_t AT24Cxx_Write_Byte( uint8_t Byte, uint16_t Address )
 *************************************************/
 uint8_t AT24Cxx_Read_Byte( uint16_t Address )
 {
-	
+#ifndef AT24CXX_16BIT_ADDR
+    if(AT24C_MEMORY_CAPACITY > 256)
+        s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+#endif /* AT24CXX_16BIT_ADDR */
+
 #if USE_SIMULATE_IIC
 	return EE_Read_Byte(s_AT24Cxx_Addr, Address);
 	
@@ -338,7 +365,7 @@ uint8_t AT24Cxx_Read_Byte( uint16_t Address )
     }
 
     /*!< Send the EEPROM's internal address to read from: LSB of the address */
-    I2C_SendData(AT24C_I2Cx, (uint8_t)(ReadAddr & 0x00FF));
+    I2C_SendData(AT24C_I2Cx, (uint8_t)(Address & 0x00FF));
 
 #endif /*!< AT24CXX_16BIT_ADDR */
 
@@ -380,7 +407,6 @@ uint8_t AT24Cxx_Read_Byte( uint16_t Address )
 
     /* Test on EV7 and clear it */
     AT24C_TimeOut = MAX_LONGTIME_OUT;
-
     while(I2C_CheckEvent(AT24C_I2Cx, I2C_EVENT_MASTER_BYTE_RECEIVED)==0)
     {
         if(0 == (AT24C_TimeOut--))
@@ -439,7 +465,6 @@ uint8_t AT24Cxx_Page_Program( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
     }
 
     /* Send EEPROM address for write */
-    AT24C_TimeOut = MAX_TIME_OUT;
     I2C_Send7bitAddress(AT24C_I2Cx, s_AT24Cxx_Addr, I2C_Direction_Transmitter);
 
     /* Test on EV6 and clear it */
@@ -508,7 +533,7 @@ uint8_t AT24Cxx_Page_Program( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
     IIC_DMA_Config((uint32_t)pBuffer, Len, EE_DIRECTION_TX);
 
     /* Enable the DMA Tx Channel */
-    DMA_Cmd(EE_I2C_DMA_CHANNEL_TX, ENABLE);
+    DMA_Cmd(EE_I2C_DMA_STREAM_TX, ENABLE);
 
 #endif /* IIC_DMA_ENABLE */
 
@@ -546,6 +571,11 @@ void AT24Cxx_Write_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
     /* Addr = 0,则 Address刚好按页对齐 */
     if(Addr == 0)
     {
+    #ifndef AT24CXX_16BIT_ADDR
+        if(AT24C_MEMORY_CAPACITY > 256)
+            s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+    #endif /* AT24CXX_16BIT_ADDR */
+
         /* Len <= AT24C_PAGE_SIZE */
         if(0 == NumOfPage)
         {
@@ -564,6 +594,11 @@ void AT24Cxx_Write_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
                 AT24Cxx_Busy_Wait();
                 Address += AT24C_PAGE_SIZE;
                 pBuffer += AT24C_PAGE_SIZE;
+
+            #ifndef AT24CXX_16BIT_ADDR
+                if(AT24C_MEMORY_CAPACITY > 256)
+                    s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+            #endif /* AT24CXX_16BIT_ADDR */
             }
             /* 若有多余的不满一页的数据，下一页把它写完 */
             if(NumOfSingle != 0)
@@ -577,6 +612,11 @@ void AT24Cxx_Write_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
     /* 若地址与 AT24C_PAGE_SIZE不对齐  */
     else
     {
+    #ifndef AT24CXX_16BIT_ADDR
+        if(AT24C_MEMORY_CAPACITY > 256)
+            s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+    #endif /* AT24CXX_16BIT_ADDR */
+
         /* Len < AT24C_PAGE_SIZE */
         if(NumOfPage == 0)
         {
@@ -591,6 +631,12 @@ void AT24Cxx_Write_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
                 temp = NumOfSingle - count;
                 Address += count;
                 pBuffer += count;
+
+            #ifndef AT24CXX_16BIT_ADDR
+                if(AT24C_MEMORY_CAPACITY > 256)
+                    s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+            #endif /* AT24CXX_16BIT_ADDR */
+
                 /* 再写剩余的数据 */
                 AT24Cxx_Page_Program(pBuffer, Address, temp);
                 EE_DMA_TxWait();
@@ -621,6 +667,11 @@ void AT24Cxx_Write_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
                 pBuffer += count;
             }
 
+        #ifndef AT24CXX_16BIT_ADDR
+            if(AT24C_MEMORY_CAPACITY > 256)
+                s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+        #endif /* AT24CXX_16BIT_ADDR */
+
             /* 把整数页都写了 */
             while(NumOfPage--)
             {
@@ -629,6 +680,11 @@ void AT24Cxx_Write_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
                 AT24Cxx_Busy_Wait();
                 Address +=  AT24C_PAGE_SIZE;
                 pBuffer += AT24C_PAGE_SIZE;
+
+            #ifndef AT24CXX_16BIT_ADDR
+                if(AT24C_MEMORY_CAPACITY > 256)
+                    s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+            #endif /* AT24CXX_16BIT_ADDR */
             }
             /* 若有多余的不满一页的数据，把它写完*/
             if(NumOfSingle != 0)
@@ -651,6 +707,10 @@ void AT24Cxx_Write_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
 *************************************************/
 uint8_t AT24Cxx_Read_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
 {
+#ifndef AT24CXX_16BIT_ADDR
+    if(AT24C_MEMORY_CAPACITY > 256)
+        s_AT24Cxx_Addr = EEPROM_BLOCK0_ADDRESS | ((Address % AT24C_MEMORY_CAPACITY) >= 256 ? (AT24C_MEMORY_CAPACITY / 256) & 0xFE : 0);
+#endif /* AT24CXX_16BIT_ADDR */
 
 #if USE_SIMULATE_IIC
 	return EE_Read_Buffer(s_AT24Cxx_Addr, pBuffer, Address, Len);
@@ -714,7 +774,7 @@ uint8_t AT24Cxx_Read_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
     }
 
     /*!< Send the EEPROM's internal address to read from: LSB of the address */
-    I2C_SendData(AT24C_I2Cx, (uint8_t)(ReadAddr & 0x00FF));
+    I2C_SendData(AT24C_I2Cx, (uint8_t)(Address & 0x00FF));
 
 #endif /*!< AT24CXX_16BIT_ADDR */
 
@@ -770,7 +830,6 @@ uint8_t AT24Cxx_Read_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
 
         /* Test on EV7 and clear it */
         AT24C_TimeOut = MAX_LONGTIME_OUT;
-
         while(I2C_CheckEvent(AT24C_I2Cx, I2C_EVENT_MASTER_BYTE_RECEIVED)==0)
         {
             if(0 == (AT24C_TimeOut--))
@@ -793,12 +852,12 @@ uint8_t AT24Cxx_Read_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
 	#else
             /* Wait for the byte to be received */
             AT24C_TimeOut = MAX_LONGTIME_OUT;
-
             while(I2C_GetFlagStatus(AT24C_I2Cx, I2C_FLAG_RXNE)==0)
             {
                 if(0 == (AT24C_TimeOut--))
                     return TimeOut_Callback(16);
             }
+
             /* Read a byte from the EEPROM */
             *pBuffer = I2C_ReceiveData(AT24C_I2Cx);
 
@@ -807,7 +866,7 @@ uint8_t AT24Cxx_Read_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
 
             /* Wait to make sure that STOP control bit has been cleared */
             AT24C_TimeOut = MAX_TIME_OUT;
-            while(AT24C_I2Cx->CR1 & I2C_CR1_STOP)
+            while(I2C_ReadRegister(AT24C_I2Cx, I2C_Register_CR1) & I2C_CR1_STOP)
             {
                 if(0 == (AT24C_TimeOut--))
                     return TimeOut_Callback(17);
@@ -825,7 +884,7 @@ uint8_t AT24Cxx_Read_EEPROM( uint8_t *pBuffer, uint16_t Address, uint16_t Len )
             I2C_DMALastTransferCmd(AT24C_I2Cx, ENABLE);
 
             /* Enable the DMA Rx Channel */
-            DMA_Cmd(EE_I2C_DMA_CHANNEL_RX, ENABLE);
+            DMA_Cmd(EE_I2C_DMA_STREAM_RX, ENABLE);
 			
 			break;
         }
@@ -875,32 +934,62 @@ static void IIC_NVIC_Config(void)
 static void IIC_DMA_Init(void)
 {
     /* Enable the DMA clock */
-    RCC_AHBPeriphClockCmd(EE_I2C_DMA_CLK, ENABLE);
+    RCC_AHB1PeriphClockCmd(EE_I2C_DMA_CLK, ENABLE);
 
-    /* I2C DMA TX and RX channels configuration */
-    s_EEDMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)EE_I2C_DR_Address;
-    s_EEDMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)0;   /* This parameter will be configured durig communication */
-    s_EEDMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;    /* This parameter will be configured durig communication */
-    s_EEDMA_InitStructure.DMA_BufferSize = 0xFFFF;            /* This parameter will be configured durig communication */
-    s_EEDMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
-    s_EEDMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
-    s_EEDMA_InitStructure.DMA_PeripheralDataSize = DMA_MemoryDataSize_Byte;
-    s_EEDMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
-    s_EEDMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
-    s_EEDMA_InitStructure.DMA_Priority = DMA_Priority_VeryHigh;		// 最高优先级
-    s_EEDMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
+    /* I2C DMA TX and RX configuration */    
+    /* Disable the I2C Tx DMA stream */
+    DMA_Cmd(EE_I2C_DMA_STREAM_TX, DISABLE);
+    
+    /* Disable the I2C Rx DMA stream */
+    DMA_Cmd(EE_I2C_DMA_STREAM_RX, DISABLE);
+    
+    /* Initialize the DMA_Channel member */
+    s_EEDMA_InitStructure.DMA_Channel = EE_I2C_DMA_CHANNEL;    
+    /* Initialize the DMA_PeripheralBaseAddr member */
+    s_EEDMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)EE_I2C_DR_Address;    
+    /* Initialize the DMA_PeripheralInc member */         
+    s_EEDMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;    
+    /* Initialize the DMA_MemoryInc member */
+    s_EEDMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;    
+    /* Initialize the DMA_PeripheralDataSize member */
+    s_EEDMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;    
+    /* Initialize the DMA_MemoryDataSize member */
+    s_EEDMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;    
+    /* Initialize the DMA_Mode member */
+    s_EEDMA_InitStructure.DMA_Mode = DMA_Mode_Normal;    
+    /* Initialize the DMA_Priority member */
+    s_EEDMA_InitStructure.DMA_Priority = DMA_Priority_VeryHigh;    
+    /* Initialize the DMA_FIFOMode member */
+    s_EEDMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Enable;    
+    /* Initialize the DMA_FIFOThreshold member */
+    s_EEDMA_InitStructure.DMA_FIFOThreshold = DMA_FIFOThreshold_Full;    
+    /* Initialize the DMA_MemoryBurst member */
+    s_EEDMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;    
+    /* Initialize the DMA_PeripheralBurst member */
+    s_EEDMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;
+    /* This parameter will be configured durig communication */
+    s_EEDMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)0;   
+    s_EEDMA_InitStructure.DMA_BufferSize = 0xFFFF;
 
     /* I2C TX DMA Channel configuration */
-    DMA_DeInit(EE_I2C_DMA_CHANNEL_TX);
-    DMA_Init(EE_I2C_DMA_CHANNEL_TX, &s_EEDMA_InitStructure);
+    s_EEDMA_InitStructure.DMA_DIR = DMA_DIR_MemoryToPeripheral;
+    DMA_DeInit(EE_I2C_DMA_STREAM_TX);
+    DMA_Init(EE_I2C_DMA_STREAM_TX, &s_EEDMA_InitStructure);
 
     /* I2C RX DMA Channel configuration */
-    DMA_DeInit(EE_I2C_DMA_CHANNEL_RX);
-    DMA_Init(EE_I2C_DMA_CHANNEL_RX, &s_EEDMA_InitStructure);
+    s_EEDMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralToMemory;
+    DMA_DeInit(EE_I2C_DMA_STREAM_RX);
+    DMA_Init(EE_I2C_DMA_STREAM_RX, &s_EEDMA_InitStructure);
+
+    /* Clear any pending flag on Tx Stream  */
+    DMA_ClearFlag(EE_I2C_DMA_STREAM_TX, EE_I2C_DMA_FLAG_TX_TC);
+                                        
+    /* Clear any pending flag on Rx Stream  */
+    DMA_ClearFlag(EE_I2C_DMA_STREAM_RX, EE_I2C_DMA_FLAG_RX_TC);
 
     /* Enable the DMA Channels Interrupts */
-    DMA_ITConfig(EE_I2C_DMA_CHANNEL_TX, DMA_IT_TC, ENABLE);
-    DMA_ITConfig(EE_I2C_DMA_CHANNEL_RX, DMA_IT_TC, ENABLE);
+    DMA_ITConfig(EE_I2C_DMA_STREAM_TX, DMA_IT_TC, ENABLE);
+    DMA_ITConfig(EE_I2C_DMA_STREAM_RX, DMA_IT_TC, ENABLE);
 }
 
 /************************************************
@@ -917,18 +1006,18 @@ static void IIC_DMA_Config( uint32_t Address, uint32_t BufferSize, uint32_t Dire
     if (Direction == EE_DIRECTION_TX)
     {
         /* Configure the DMA Tx Channel with the buffer address and the buffer size */
-        s_EEDMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)Address;
-        s_EEDMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;
+        s_EEDMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)Address;
+        s_EEDMA_InitStructure.DMA_DIR = DMA_DIR_MemoryToPeripheral;
         s_EEDMA_InitStructure.DMA_BufferSize = (uint32_t)BufferSize;
-        DMA_Init(EE_I2C_DMA_CHANNEL_TX, &s_EEDMA_InitStructure);
+        DMA_Init(EE_I2C_DMA_STREAM_TX, &s_EEDMA_InitStructure);
     }
     else
     {
         /* Configure the DMA Rx Channel with the buffer address and the buffer size */
-        s_EEDMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)Address;
-        s_EEDMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralSRC;
+        s_EEDMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)Address;
+        s_EEDMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralToMemory;
         s_EEDMA_InitStructure.DMA_BufferSize = (uint32_t)BufferSize;
-        DMA_Init(EE_I2C_DMA_CHANNEL_RX, &s_EEDMA_InitStructure);
+        DMA_Init(EE_I2C_DMA_STREAM_RX, &s_EEDMA_InitStructure);
     }
 }
 
@@ -951,15 +1040,23 @@ void AT24Cxx_Config(void)
     I2C_InitTypeDef I2C_InitStructure;
 
     /* AT24C_I2Cx IO Periph clock enable */
-    AT24C_IO_APBxClock_FUN(AT24C_SCL_CLK | AT24C_SDA_CLK, ENABLE);
+    AT24C_IO_CLOCK_FUN(AT24C_SCL_CLK | AT24C_SDA_CLK, ENABLE);
 
     /* AT24C_I2Cx Periph clock enable */
-    AT24C_I2C_APBxClock_FUN(AT24C_I2C_CLK, ENABLE);
+    AT24C_I2C_CLOCK_FUN(AT24C_I2C_CLK, ENABLE);
 
     /* Configure AT24C_I2Cx pins: SCL, SDA */
-    /* Confugure SCL and SDA pins as Alternate Function Open Drain Output */
+    /* Connect PXx to I2C_SCL */
+    GPIO_PinAFConfig(AT24C_SCL_PORT, AT24C_SCL_SOURCE, AT24C_I2C_GPIO_AF_MAP);
+
+    /* Connect PXx to I2C_SDA */
+    GPIO_PinAFConfig(AT24C_SDA_PORT, AT24C_SDA_SOURCE, AT24C_I2C_GPIO_AF_MAP);
+
+    /* Confugure SCL and SDA pins as Alternate Function */
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_OD;
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_NOPULL;
 
     GPIO_InitStructure.GPIO_Pin = AT24C_SCL_PINS;
     GPIO_Init(AT24C_SCL_PORT, &GPIO_InitStructure);
@@ -977,10 +1074,16 @@ void AT24Cxx_Config(void)
     /* AT24C_I2Cx configuration */
     I2C_InitStructure.I2C_Mode = I2C_Mode_I2C;
     I2C_InitStructure.I2C_DutyCycle = I2C_DutyCycle_2;
-    I2C_InitStructure.I2C_OwnAddress1 = I2C_SLAVE_ADDRESS7;
+    I2C_InitStructure.I2C_OwnAddress1 = I2C_SLAVE_ADDRESS;
     I2C_InitStructure.I2C_Ack = I2C_Ack_Enable;
-    I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
     I2C_InitStructure.I2C_ClockSpeed = I2C_SPEED;
+
+#ifndef I2C_10BITS_ADDRESS
+    I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
+#else
+    I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_10bit;
+#endif /* I2C_10BITS_ADDRESS */
+
     I2C_Init(AT24C_I2Cx, &I2C_InitStructure);
 
     /* Enable AT24C_I2Cx */
@@ -1030,6 +1133,7 @@ void AT24Cxx_Init(void)
 	if(0 == EE_IIC_Check(s_AT24Cxx_Addr))
 	{
 		AT24C_DEBUG_PRINTF("The EEPROM device could not be found\n");
+        return;
 	}
 	
 #endif /* USE_SIMULATE_IIC */
@@ -1047,13 +1151,13 @@ static uint8_t EE_Test(void)
 {
 	
 #if _EE_TEST
-	uint8_t I2c_Buf_Write[256] = {0};
-	uint8_t I2c_Buf_Read[256] = {0};
+	uint8_t I2c_Buf_Write[AT24C_MEMORY_CAPACITY] = {0};
+	uint8_t I2c_Buf_Read[AT24C_MEMORY_CAPACITY] = {0};
 	uint16_t i;
 
 	/* 单字节读写测试 */
 	AT24C_DEBUG_PRINTF("单字节读写测试\n");
-	if(AT24Cxx_Write_Byte(0xBB, USE_TEST_ADDR + 0x200))
+	if(AT24Cxx_Write_Byte(0xBB, USER_TEST_ADDR + 0x200))
 	{
 		AT24Cxx_Busy_Wait();
 
@@ -1062,23 +1166,25 @@ static uint8_t EE_Test(void)
 
 #endif /* USE_SIMULATE_IIC */
 		
-		AT24C_DEBUG_PRINTF("data:0x%02X\n",AT24Cxx_Read_Byte(USE_TEST_ADDR + 0x200));
+		AT24C_DEBUG_PRINTF("data:0x%02X\n", AT24Cxx_Read_Byte(USER_TEST_ADDR + 0x200));
 		AT24Cxx_Busy_Wait();
 	}
 
 #if 1
-	/* 单字节读写测试 */
+	/* 页读写测试 */
 	AT24C_DEBUG_PRINTF("页读写测试\n");
 
-	for (i = 0;i < 256;i++) // 填充缓冲
+	for (i = 0; i < AT24C_MEMORY_CAPACITY; i++) // 填充缓冲
 	{
 		I2c_Buf_Write[i] = i;
+        if(i >= 256)
+            I2c_Buf_Write[i] = I2c_Buf_Write[AT24C_MEMORY_CAPACITY - i];
 	}
 	
 	I2c_Buf_Write[0] = 0xAA;
 
 	// 将 I2c_Buf_Write中顺序递增的数据写入 EERPOM中
-	AT24Cxx_Write_EEPROM(I2c_Buf_Write, USE_TEST_ADDR, 256);
+	AT24Cxx_Write_EEPROM(I2c_Buf_Write, USER_TEST_ADDR, AT24C_MEMORY_CAPACITY);
 	
 	// 写入函数已经包含了busy检查了
 //	EE_DMA_RxWait();
@@ -1090,25 +1196,25 @@ static uint8_t EE_Test(void)
 #endif /* USE_SIMULATE_IIC */
 	
 	// 将 EEPROM读出数据顺序保持到 I2c_Buf_Read中
-	AT24Cxx_Read_EEPROM(I2c_Buf_Read, USE_TEST_ADDR, 256);
-		
+	AT24Cxx_Read_EEPROM(I2c_Buf_Read, USER_TEST_ADDR, AT24C_MEMORY_CAPACITY);
+
 	EE_DMA_RxWait();
 	AT24Cxx_Busy_Wait();
    
 	// 将 I2c_Buf_Read中的数据通过串口打印
-	for (i = 0;i < 256;i++)
+	for (i = 0;i < AT24C_MEMORY_CAPACITY;i++)
 	{
 		if(I2c_Buf_Read[i] != I2c_Buf_Write[i])
 		{
 			AT24C_DEBUG_PRINTF("0x%02X , i = %d\n", I2c_Buf_Read[i], i);
-			AT24C_DEBUG_PRINTF("错误:I2C EEPROM写入与读出的数据不一致\n\r");
+			AT24C_DEBUG_PRINTF("错误:I2C EEPROM写入与读出的数据不一致\n");
 			return 0;
 		}
 		printf("0x%02X ", I2c_Buf_Read[i]);
-		if(i%11 == 10 || i == 255)
-			printf("\n\r");    
+		if(i%11 == 10 || i == AT24C_MEMORY_CAPACITY - 1)
+			printf("\n");    
 	}
-	AT24C_DEBUG_PRINTF("I2C(AT24C02)读写测试成功\n\r");
+	AT24C_DEBUG_PRINTF("I2C(AT24C04)读写测试成功\n");
 
 #endif
 	
@@ -1132,11 +1238,11 @@ static uint8_t EE_Test(void)
 void EE_I2C_DMA_TX_IRQHandler(void)
 {
     /* Check if the DMA transfer is complete */
-    if(DMA_GetFlagStatus(EE_I2C_DMA_FLAG_TX_TC) != RESET)
+    if(DMA_GetITStatus(EE_I2C_DMA_STREAM_TX, EE_I2C_DMA_IT_FLAG_TX) != RESET)
     {
         /* Disable the DMA Tx Channel and Clear all its Flags */
-        DMA_Cmd(EE_I2C_DMA_CHANNEL_TX, DISABLE);
-        DMA_ClearFlag(EE_I2C_DMA_FLAG_TX_GL);
+        DMA_Cmd(EE_I2C_DMA_STREAM_TX, DISABLE);
+        DMA_ClearITPendingBit(EE_I2C_DMA_STREAM_TX, EE_I2C_DMA_IT_FLAG_TX);
 
         /*!< Wait till all data have been physically transferred on the bus */
         AT24C_TimeOut = MAX_LONGTIME_OUT;
@@ -1165,14 +1271,14 @@ void EE_I2C_DMA_TX_IRQHandler(void)
 void EE_I2C_DMA_RX_IRQHandler(void)
 {
     /* Check if the DMA transfer is complete */
-    if(DMA_GetFlagStatus(EE_I2C_DMA_FLAG_RX_TC) != RESET)
+    if(DMA_GetITStatus(EE_I2C_DMA_STREAM_RX, EE_I2C_DMA_IT_FLAG_RX) != RESET)
     {
         /*!< Send STOP Condition */
         I2C_GenerateSTOP(AT24C_I2Cx, ENABLE);
 
         /* Disable the DMA Rx Channel and Clear all its Flags */
-        DMA_Cmd(EE_I2C_DMA_CHANNEL_RX, DISABLE);
-        DMA_ClearFlag(EE_I2C_DMA_FLAG_RX_GL);
+        DMA_Cmd(EE_I2C_DMA_STREAM_RX, DISABLE);
+        DMA_ClearITPendingBit(EE_I2C_DMA_STREAM_RX, EE_I2C_DMA_IT_FLAG_RX);
 
         /* Reset the variable holding the number of data to be read */
         g_EEData_ReadPointer = 0;

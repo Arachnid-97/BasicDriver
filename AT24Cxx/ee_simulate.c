@@ -1,5 +1,5 @@
-#include "./AT24Cxx/ee_simulate.h"
-#include "./AT24Cxx/at24cxx.h"
+#include "ee_simulate.h"
+#include "at24cxx.h"
 #include "bsp_iic.h"
 
 

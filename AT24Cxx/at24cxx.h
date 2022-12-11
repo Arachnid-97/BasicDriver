@@ -2,7 +2,8 @@
 #define __AT24CXX_H
 
 
-#include "stm32f10x.h"
+#include "stm32f4xx.h"
+
 
 //#ifndef ENABLE
 //#define ENABLE              1
@@ -20,73 +21,82 @@
 #define LOW                 0
 #endif /* LOW */
 
-#define _AT24C_DEBUG		1
-#define AT24C_DEBUG_PRINTF(fmt,arg...)		do{\
-											if(_AT24C_DEBUG)\
-												printf("<<-EEPROM-DEBUG->> < %s >[%d]\n"fmt"\n",__FILE__,__LINE__, ##arg);\
-											}while(0)
-
-/* I2C EEPROM Interface */
-#define EE_I2C_DMA                      DMA1   
-#define EE_I2C_DMA_CHANNEL_TX           DMA1_Channel6
-#define EE_I2C_DMA_CHANNEL_RX           DMA1_Channel7 
-#define EE_I2C_DMA_FLAG_TX_TC           DMA1_IT_TC6   
-#define EE_I2C_DMA_FLAG_TX_GL           DMA1_IT_GL6 
-#define EE_I2C_DMA_FLAG_RX_TC           DMA1_IT_TC7 
-#define EE_I2C_DMA_FLAG_RX_GL           DMA1_IT_GL7    
-#define EE_I2C_DMA_CLK                  RCC_AHBPeriph_DMA1
-#define EE_I2C_DR_Address               (&(AT24C_I2Cx->DR))
-
-#define EE_I2C_DMA_TX_IRQn              DMA1_Channel6_IRQn
-#define EE_I2C_DMA_RX_IRQn              DMA1_Channel7_IRQn
-#define EE_I2C_DMA_TX_IRQHandler        DMA1_Channel6_IRQHandler
-#define EE_I2C_DMA_RX_IRQHandler        DMA1_Channel7_IRQHandler
-#define EE_I2C_DMA_PREPRIO              0
-#define EE_I2C_DMA_SUBPRIO              0
-
-#define EE_DIRECTION_TX					0
-#define EE_DIRECTION_RX					1
-											
-/* IICÊ±ÖÓËÙÂÊ */
-#define I2C_SPEED               		400000
-/* Õâ¸öµØÖ·Ö»ÒªÓë STM32Íâ¹ÒµÄ I2CÆ÷¼şµØÖ·²»Ò»Ñù¼´¿É */
-#define I2C_SLAVE_ADDRESS7     			0x0A
-
-#define AT24C_READ						0x01
-#define AT24C_WRITE						0x00
-
 
 /* The M24C08W contains 4 blocks (128byte each) with the adresses below: E2 = 0 
    EEPROM Addresses defines */
-#define EEPROM_BLOCK0_ADDRESS     		0xA0	/* E2 = 0 */ 
-//#define EEPROM_BLOCK1_ADDRESS     		0xA2	/* E2 = 0 */  
-//#define EEPROM_BLOCK2_ADDRESS     		0xA4	/* E2 = 0 */
-//#define EEPROM_BLOCK3_ADDRESS     		0xA6	/* E2 = 0 */
- 
+#define EEPROM_BLOCK0_ADDRESS       0xA0 /* E2 = 0 */
+// #define EEPROM_BLOCK1_ADDRESS       0xA2 /* E2 = 0 */
+// #define EEPROM_BLOCK2_ADDRESS       0xA4 /* E2 = 0 */
+// #define EEPROM_BLOCK3_ADDRESS       0xA6 /* E2 = 0 */
+
+/* AT24Cè®¾å¤‡å†…å­˜æ€»å®¹é‡ x8bit */
+#define AT24C_MEMORY_CAPACITY       512
+
+/* AT24C01/02æ¯é¡µæœ‰ 8ä¸ªå­—èŠ‚ 
+ * AT24C04/08/16æ¯é¡µæœ‰ 16ä¸ªå­—èŠ‚ */
+#define AT24C_PAGE_SIZE             16
+
+/* ä½¿ç”¨ 16ä½æ•°æ®åˆ™å®šä¹‰è¯¥å®,å¦è€…é»˜è®¤ 8ä½æ•°æ® */
+// #define AT24CXX_16BIT_ADDR
+
+/* ä½¿ç”¨ 10ä½å­—åœ°å€åˆ™å®šä¹‰è¯¥å®,å¦è€…é»˜è®¤(æ ‡å‡†) 7ä½å­—åœ°å€ */
+// #define I2C_10BITS_ADDRESS
+
+/* --------------------------------------------------------------------- */
+
+/* I2C EEPROM Interface */
+#define EE_I2C_DMA                      DMA1   
+#define EE_I2C_DMA_CHANNEL              DMA_Channel_7
+#define EE_I2C_DMA_STREAM_TX            DMA1_Stream7
+#define EE_I2C_DMA_STREAM_RX            DMA1_Stream2 
+#define EE_I2C_DMA_FLAG_TX_TC           DMA_FLAG_TCIF7
+#define EE_I2C_DMA_IT_FLAG_TX           DMA_IT_TCIF7
+#define EE_I2C_DMA_FLAG_RX_TC           DMA_FLAG_TCIF2
+#define EE_I2C_DMA_IT_FLAG_RX           DMA_IT_TCIF2
+#define EE_I2C_DMA_CLK                  RCC_AHB1Periph_DMA1
+#define EE_I2C_DR_Address               (&(AT24C_I2Cx->DR))
+
+#define EE_I2C_DMA_TX_IRQn              DMA1_Stream7_IRQn
+#define EE_I2C_DMA_RX_IRQn              DMA1_Stream2_IRQn
+#define EE_I2C_DMA_TX_IRQHandler        DMA1_Stream7_IRQHandler
+#define EE_I2C_DMA_RX_IRQHandler        DMA1_Stream2_IRQHandler
+#define EE_I2C_DMA_PREPRIO              0
+#define EE_I2C_DMA_SUBPRIO              0
+
+#define EE_DIRECTION_TX             0
+#define EE_DIRECTION_RX             1
+                                 
+/* IICæ—¶é’Ÿé€Ÿç‡ */
+#define I2C_SPEED                   400000
+/* è¿™ä¸ªåœ°å€åªè¦ä¸ STM32å¤–æŒ‚çš„ I2Cå™¨ä»¶åœ°å€ä¸ä¸€æ ·å³å¯ */
+#define I2C_SLAVE_ADDRESS           0x0A
+
+#define AT24C_READ                  0x01
+#define AT24C_WRITE                 0x00
+
+
 /* AT24Cxx IICx */
-#define AT24C_I2Cx	        	I2C1
-#define AT24C_I2C_CLK     		RCC_APB1Periph_I2C1
-#define AT24C_I2C_APBxClock_FUN(x, y)	RCC_APB1PeriphClockCmd(x, y)
+#define AT24C_I2Cx              I2C2
+#define AT24C_I2C_CLK           RCC_APB1Periph_I2C2
+#define AT24C_I2C_CLOCK_FUN(x, y)   RCC_APB1PeriphClockCmd(x, y)
 
 /* AT24Cxx GPIO */
-#define AT24C_SCL_APBxClock_FUN(x, y)	RCC_APB2PeriphClockCmd(x, y)
-#define AT24C_SCL_CLK			RCC_APB2Periph_GPIOB
-#define AT24C_SCL_PORT   		GPIOB
-#define AT24C_SCL_PINS   		GPIO_Pin_6
-#define AT24C_SDA_APBxClock_FUN(x, y)	RCC_APB2PeriphClockCmd(x, y)
-#define AT24C_SDA_CLK			RCC_APB2Periph_GPIOB
-#define AT24C_SDA_PORT   		GPIOB
-#define AT24C_SDA_PINS   		GPIO_Pin_7
+#define AT24C_SCL_CLOCK_FUN(x, y)   RCC_AHB1PeriphClockCmd(x, y)
+#define AT24C_SCL_CLK           RCC_AHB1Periph_GPIOB
+#define AT24C_SCL_PORT          GPIOB
+#define AT24C_SCL_PINS          GPIO_Pin_10
+#define AT24C_SCL_SOURCE        GPIO_PinSource10
+#define AT24C_SDA_CLOCK_FUN(x, y)   RCC_AHB1PeriphClockCmd(x, y)
+#define AT24C_SDA_CLK           RCC_AHB1Periph_GPIOB
+#define AT24C_SDA_PORT          GPIOB
+#define AT24C_SDA_PINS          GPIO_Pin_11
+#define AT24C_SDA_SOURCE        GPIO_PinSource11
 
-/* Èç¹û IOµÄÇÅ½ÓÏßÒ»Ñù¾ÍÖ±½ÓÓÃÏÂÃæµÄºê£¬·ñÔò·Ö¿ªÅäÖÃ */
-#define AT24C_IO_APBxClock_FUN(x, y)	RCC_APB2PeriphClockCmd(x, y)
+#define AT24C_I2C_GPIO_AF_MAP   GPIO_AF_I2C2
 
+/* å¦‚æœ IOçš„æ¡¥æ¥çº¿ä¸€æ ·å°±ç›´æ¥ç”¨ä¸‹é¢çš„å®ï¼Œå¦åˆ™åˆ†å¼€é…ç½® */
+#define AT24C_IO_CLOCK_FUN(x, y)    RCC_AHB1PeriphClockCmd(x, y)
 
-/* AT24C01/02Ã¿Ò³ÓĞ8¸ö×Ö½Ú */
-#define AT24C_PAGE_SIZE           8
-
-/* AT24C04/08A/16AÃ¿Ò³ÓĞ16¸ö×Ö½Ú */
-//#define AT24C_PAGE_SIZE           16	
 
 void EE_DMA_TxWait(void);
 void EE_DMA_RxWait(void);
@@ -109,7 +119,7 @@ void EE_EnterCriticalSection_UserCallback(void);
 void EE_ExitCriticalSection_UserCallback(void);
 
 
-#endif	/* __AT24CXX_H */
+#endif /* __AT24CXX_H */
 
 
 /*---------------------------- END OF FILE ----------------------------*/
