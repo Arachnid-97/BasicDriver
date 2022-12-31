@@ -1,337 +1,450 @@
 #include "w5500_mode.h"
-#include "w5500_drv.h"
 #include "w5500.h"
+#include "w5500_reg.h"
+#include <string.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
+
+static LocalNet_TypeDef    Local_Net;
+static RemoteNet_TypeDef   Socket_0;           // è¯·æ ¹æ®ä½¿ç”¨çš„ Socketç«¯å£å®šä¹‰ç»“æ„ä½“
+
+static W5500_Drv_Hooks* rw_Data = NULL;
+
+// static _Bool Detect_Gateway( uint8_t S );
+
+uint16_t SSIZE[MAX_SOCK_NUM] = {0,0,0,0,0,0,0,0};     // Max Tx buffer
+uint16_t RSIZE[MAX_SOCK_NUM] = {0,0,0,0,0,0,0,0};     // Max Rx buffer
 
 //uint8_t W5500_Tx_Buf[] = {0};
 //uint8_t W5500_Rx_Buf[] = {0};
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_TCP_Server
-¹¦    ÄÜ £º TCP·şÎñ¶Ë´¦Àí
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_TCP_Server
+åŠŸ    èƒ½ ï¼š TCPæœåŠ¡ç«¯å¤„ç†
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void W5500_TCP_Server(void)
 {
     uint16_t len = 0;
     uint8_t buf[2048] = {0};
-    uint16_t temp = 0;
 
-    temp = Get_Sn_SR(SOCK_TCP_S_PORT);
-
-	switch(Get_Sn_SR(SOCK_TCP_S_PORT))										/*»ñÈ¡socketµÄ×´Ì¬*/
+	switch(Get_Sn_SR(SOCK_TCP_S_PORT))										/*è·å–socketçš„çŠ¶æ€*/
 	{
-		case SOCK_CLOSED:													/*socket´¦ÓÚ¹Ø±Õ×´Ì¬*/
-                Socket_Config(SOCK_TCP_S_PORT, TCP_SERVER, Local_Net.LPort);/*´ò¿ªsocket*/
-                break;
+		case SOCK_CLOSED:													/*socketå¤„äºå…³é—­çŠ¶æ€*/
+            Socket_Config(SOCK_TCP_S_PORT, TCP_SERVER, Local_Net.LPort);/*æ‰“å¼€socket*/
+            break;
 
-		case SOCK_INIT:														/*socketÒÑ³õÊ¼»¯×´Ì¬*/
-                Socket_Listen(SOCK_TCP_S_PORT);								/*socket½¨Á¢¼àÌı*/
-                break;
+		case SOCK_INIT:														/*socketå·²åˆå§‹åŒ–çŠ¶æ€*/
+            Socket_Listen(SOCK_TCP_S_PORT);								/*socketå»ºç«‹ç›‘å¬*/
+            break;
 
-		case SOCK_ESTABLISHED:										        /*socket´¦ÓÚÁ¬½Ó½¨Á¢×´Ì¬*/
-                if(Get_Sn_IR(SOCK_TCP_S_PORT) & Sn_IR_CON)
-                {
-                    Set_Sn_IR(SOCK_TCP_S_PORT, Sn_IR_CON);					/*Çå³ı½ÓÊÕÖĞ¶Ï±êÖ¾Î»*/
-                }
+		case SOCK_ESTABLISHED:										        /*socketå¤„äºè¿æ¥å»ºç«‹çŠ¶æ€*/
+            if(Get_Sn_IR(SOCK_TCP_S_PORT) & Sn_IR_CON)
+            {
+                Set_Sn_IR(SOCK_TCP_S_PORT, Sn_IR_CON);					/*æ¸…é™¤æ¥æ”¶ä¸­æ–­æ ‡å¿—ä½*/
+            }
 
-                len = Get_Sn_Rx_RSR(SOCK_TCP_S_PORT);
-                if(len > 0)
-                {
-                    TCP_Buf_Recv(SOCK_TCP_S_PORT, buf, len);				/*½ÓÊÕÀ´×ÔClientµÄÊı¾İ*/
-//                    buf[len] = 0x00; 											/*Ìí¼Ó×Ö·û´®½áÊø·û*/
-//                    printf("%s\r\n",buf);
-//                    TCP_Buf_Send(SOCK_TCP_S_PORT, buf, len);					/*ÏòClient·¢ËÍÊı¾İ*/
-                }
-                break;
+            len = TCP_Buf_Recv(SOCK_TCP_S_PORT, buf, RSIZE[SOCK_TCP_S_PORT]);/*æ¥æ”¶æ¥è‡ªClientçš„æ•°æ®*/
+            if(len > 0)
+            {
+                buf[len] = '\0'; 											/*æ·»åŠ å­—ç¬¦ä¸²ç»“æŸç¬¦*/
+                printf("TCP Server Receive %d: %s\n", len, buf);
+                TCP_Buf_Send(SOCK_TCP_S_PORT, buf, len);					/*å‘Clientå‘é€æ•°æ®*/
+            }
+            break;
 
-		case SOCK_CLOSE_WAIT:												/*socket´¦ÓÚµÈ´ı¹Ø±Õ×´Ì¬*/
-                Socket_Colse(SOCK_TCP_S_PORT);
-                break;
+		case SOCK_CLOSE_WAIT:												/*socketå¤„äºç­‰å¾…å…³é—­çŠ¶æ€*/
+            Socket_Colse(SOCK_TCP_S_PORT);
+            break;
 
         default:
-                break;
+            break;
 	}
 
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_TCP_Client
-¹¦    ÄÜ £º TCP¿Í»§¶Ë´¦Àí
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_TCP_Client
+åŠŸ    èƒ½ ï¼š TCPå®¢æˆ·ç«¯å¤„ç†
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void W5500_TCP_Client(void)
 {
     uint16_t len = 0;
     uint8_t buf[2048] = {0};
 
-	switch(Get_Sn_SR(SOCK_TCP_C_PORT))								  		/*»ñÈ¡socketµÄ×´Ì¬*/
+	switch(Get_Sn_SR(SOCK_TCP_C_PORT))								  		/*è·å–socketçš„çŠ¶æ€*/
 	{
-		case SOCK_CLOSED:											        /*socket´¦ÓÚ¹Ø±Õ×´Ì¬*/
-                Socket_Config(SOCK_UDP_PORT, TCP_CLIENT, Local_Net.LPort);
-                break;
+		case SOCK_CLOSED:											        /*socketå¤„äºå…³é—­çŠ¶æ€*/
+            Socket_Config(SOCK_TCP_C_PORT, TCP_CLIENT, Local_Net.LPort);
+            break;
 
-		case SOCK_INIT:													    /*socket´¦ÓÚ³õÊ¼»¯×´Ì¬*/
-                Socket_Connect(SOCK_TCP_C_PORT,Socket_0.RIp,Socket_0.RPort);/*socketÁ¬½Ó·şÎñÆ÷*/
-                break;
+		case SOCK_INIT:													    /*socketå¤„äºåˆå§‹åŒ–çŠ¶æ€*/
+            Socket_Connect(SOCK_TCP_C_PORT, Socket_0.RIp, Socket_0.RPort);/*socketè¿æ¥æœåŠ¡å™¨*/
+            break;
 
-		case SOCK_ESTABLISHED: 												/*socket´¦ÓÚÁ¬½Ó½¨Á¢×´Ì¬*/
-                if(Get_Sn_IR(SOCK_TCP_C_PORT) & Sn_IR_CON)
-                {
-                    Set_Sn_IR(SOCK_TCP_C_PORT, Sn_IR_CON); 					/*Çå³ı½ÓÊÕÖĞ¶Ï±êÖ¾Î»*/
-                }
+		case SOCK_ESTABLISHED: 												/*socketå¤„äºè¿æ¥å»ºç«‹çŠ¶æ€*/
+            if(Get_Sn_IR(SOCK_TCP_C_PORT) & Sn_IR_CON)
+            {
+                Set_Sn_IR(SOCK_TCP_C_PORT, Sn_IR_CON); 					/*æ¸…é™¤æ¥æ”¶ä¸­æ–­æ ‡å¿—ä½*/
+            }
 
-                len = Get_Sn_Rx_RSR(SOCK_TCP_C_PORT);
-                if(len > 0)
-                {
-                    TCP_Buf_Recv(SOCK_TCP_C_PORT,buf,len); 					/*½ÓÊÕÀ´×ÔServerµÄÊı¾İ*/
-//                    buf[len] = 0x00;  										/*Ìí¼Ó×Ö·û´®½áÊø·û*/
-//                    printf("%s\r\n",buf);
-//                    TCP_Buf_Send(SOCK_TCP_C_PORT, buf, len);					/*ÏòServer·¢ËÍÊı¾İ*/
-                }
-                break;
+            len = TCP_Buf_Recv(SOCK_TCP_C_PORT, buf, RSIZE[SOCK_TCP_C_PORT]);/*æ¥æ”¶æ¥è‡ªServerçš„æ•°æ®*/
+            if(len > 0)
+            {
+                buf[len] = '\0';  										/*æ·»åŠ å­—ç¬¦ä¸²ç»“æŸç¬¦*/
+                printf("TCP Client Receive %d: %s\n", len, buf);
+                TCP_Buf_Send(SOCK_TCP_C_PORT, buf, len);					/*å‘Serverå‘é€æ•°æ®*/
+            }
+            break;
 
-		case SOCK_CLOSE_WAIT: 											    /*socket´¦ÓÚµÈ´ı¹Ø±Õ×´Ì¬*/
-                Socket_Colse(SOCK_TCP_C_PORT);
-                break;
+		case SOCK_CLOSE_WAIT: 											    /*socketå¤„äºç­‰å¾…å…³é—­çŠ¶æ€*/
+            Socket_Colse(SOCK_TCP_C_PORT);
+            break;
 
         default:
-                break;
+            break;
 	}
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_UDP_Deal
-¹¦    ÄÜ £º UDP´¦Àí
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_UDP_Deal
+åŠŸ    èƒ½ ï¼š UDPå¤„ç†
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void W5500_UDP_Deal(void)
 {
     uint16_t len = 0;
     uint8_t buf[2048] = {0};
 
-	switch(Get_Sn_SR(SOCK_UDP_PORT))                                   /*»ñÈ¡socketµÄ×´Ì¬*/
+	switch(Get_Sn_SR(SOCK_UDP_PORT))                                   /*è·å–socketçš„çŠ¶æ€*/
 	{
-		case SOCK_CLOSED:                                              /*socket´¦ÓÚ¹Ø±Õ×´Ì¬*/
-                Socket_Config(SOCK_UDP_PORT, UDP_MODE, Local_Net.LPort);/*³õÊ¼»¯socket*/
-                break;
+		case SOCK_CLOSED:                                              /*socketå¤„äºå…³é—­çŠ¶æ€*/
+            Socket_Config(SOCK_UDP_PORT, UDP_MODE, Local_Net.LPort);/*åˆå§‹åŒ–socket*/
+            break;
 
-		case SOCK_UDP:                                                 /*socket³õÊ¼»¯Íê³É*/
-                W5500_Delay_ms(10);
-                if(Get_Sn_IR(SOCK_UDP_PORT) & Sn_IR_RECV)
-                {
-                    Set_Sn_IR(SOCK_UDP_PORT, Sn_IR_RECV);              /*Çå½ÓÊÕÖĞ¶Ï*/
-                }
-
-                len = Get_Sn_Rx_RSR(SOCK_UDP_PORT);
-                if(len > 0)                                           /*½ÓÊÕµ½Êı¾İ*/
-                {
-                    UDP_Buf_Recv(SOCK_UDP_PORT, buf, len, Socket_0.RIp, Socket_0.RPort);    /*W5500½ÓÊÕ·¢ËÍÀ´µÄÊı¾İ*/
-//                    buf[len - 8] = 0x00;                                                    /*Ìí¼Ó×Ö·û´®½áÊø·û*/
-//                    printf("%s\r\n",buf);                                                   /*´òÓ¡½ÓÊÕ»º´æ*/
-//                    UDP_Buf_Send(SOCK_UDP_PORT, buf, len - 8, Socket_0.RIp, Socket_0.RPort);/*W5500°Ñ½ÓÊÕµ½µÄÊı¾İ·¢ËÍ¸øRemote*/
-                }
-                break;
+		case SOCK_UDP:                                                 /*socketåˆå§‹åŒ–å®Œæˆ*/
+            len = UDP_Buf_Recv(SOCK_UDP_PORT, buf, RSIZE[SOCK_UDP_PORT], Socket_0.RIp, Socket_0.RPort);/*W5500æ¥æ”¶å‘é€æ¥çš„æ•°æ®*/
+            if(len > 0)                                           /*æ¥æ”¶åˆ°æ•°æ®*/
+            {                
+                buf[len] = '\0';                                                    /*æ·»åŠ å­—ç¬¦ä¸²ç»“æŸç¬¦*/
+                printf("UDP Receive %d: %s\n", len, buf);                                  /*æ‰“å°æ¥æ”¶ç¼“å­˜*/
+                UDP_Buf_Send(SOCK_UDP_PORT, buf, len, Socket_0.RIp, Socket_0.RPort);/*W5500æŠŠæ¥æ”¶åˆ°çš„æ•°æ®å‘é€ç»™Remote*/
+            }
+            break;
 
         default:
-                break;
+            break;
 	}
 
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_Disconnect
-¹¦    ÄÜ £º Socket¶Ï¿ª
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Socket_Disconnect
+åŠŸ    èƒ½ ï¼š Socketæ–­å¼€
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Socket_Disconnect( uint8_t S )
 {
     Set_Sn_CR(S, Sn_CR_DISCON);
-    while(Get_Sn_SR(S) != SOCK_CLOSED);     // µÈ´ı Socket¶Ï¿ª
+    while(Get_Sn_SR(S) != SOCK_CLOSED);     // ç­‰å¾… Socketæ–­å¼€
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_Colse
-¹¦    ÄÜ £º Socket¹Ø±Õ
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Socket_Colse
+åŠŸ    èƒ½ ï¼š Socketå…³é—­
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Socket_Colse( uint8_t S )
 {
     Set_Sn_CR(S, Sn_CR_CLOSE);
-    while(Get_Sn_SR(S) != SOCK_CLOSED);     // µÈ´ı Socket¹Ø±Õ
-    Set_Sn_IR(S, 0xFF);                     // Çå SocketËùÓĞÖĞ¶Ï
+    while(Get_Sn_SR(S) != SOCK_CLOSED);     // ç­‰å¾… Socketå…³é—­
+    Set_Sn_IR(S, 0xFF);                     // æ¸… Socketæ‰€æœ‰ä¸­æ–­
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º TCP_Buf_Recv
-¹¦    ÄÜ £º TCPÊı¾İ½ÓÊÕ
-²Î    Êı £º S ---- Socket number
-            pBuf ---- Êı¾İ
-            Len ---- ³¤¶È
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š TCP_Buf_Recv
+åŠŸ    èƒ½ ï¼š TCPæ•°æ®æ¥æ”¶
+å‚    æ•° ï¼š S ---- Socket number
+            pBuf ---- æ•°æ®
+è¿” å› å€¼ ï¼š ret ---- æˆåŠŸæ¥æ”¶çš„é•¿åº¦
 *************************************************/
-void TCP_Buf_Recv( uint8_t S, uint8_t *pBuf, uint16_t Len )
+uint16_t TCP_Buf_Recv( uint8_t S, uint8_t *pBuf, uint16_t Len )
 {
+    uint8_t status = 0;
+    uint16_t freesize = 0;
     uint16_t addr = 0;
+    uint16_t ret = 0;
 
-    if(0 == Len)
+    if(Get_Sn_IR(S) & Sn_IR_RECV)
     {
-        return ;
+        Set_Sn_IR(S, Sn_IR_RECV);					/*æ¸…é™¤æ¥æ”¶ä¸­æ–­æ ‡å¿—ä½*/
+
+        freesize = Get_Sn_Rx_RSR(S);
+        status = Get_Sn_SR(S);
+        if((status != SOCK_ESTABLISHED) && (status != SOCK_CLOSE_WAIT))
+        {
+            Socket_Colse(S);
+            printf("TCP Receive Disconnect!!!\n");
+            ret = 0;
+            return ret;
+        }
+
+        ret = freesize > Len ? Len : freesize;
+        if(0 == ret)
+        {
+            return ret;
+        }
+
+        addr = Get_Sn_Rx_RD(S);
+
+        rw_Data->read_buf_fn(addr, Sn_RX_BUFFER(S), pBuf, ret); // è¯»å–æ•°æ®
+
+        addr += ret;
+        Set_Sn_Rx_RD(S, addr);
+        Set_Sn_CR(S, Sn_CR_RECV);
     }
 
-    addr = Get_Sn_Rx_RD(S);
-
-    W5500_Read_Buf(addr, Sn_RX_BUFFER(S), pBuf, Len); // ¶ÁÈ¡Êı¾İ
-
-    addr += Len;
-    Set_Sn_Rx_RD(S, addr);
-    Set_Sn_CR(S, Sn_CR_RECV);
+    return ret;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º TCP_Buf_Send
-¹¦    ÄÜ £º TCPÊı¾İ·¢ËÍ
-²Î    Êı £º S ---- Socket number
-            pBuf ---- Êı¾İ
-            Len ---- ³¤¶È
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š TCP_Buf_Send
+åŠŸ    èƒ½ ï¼š TCPæ•°æ®å‘é€
+å‚    æ•° ï¼š S ---- Socket number
+            pBuf ---- æ•°æ®
+            Len ---- é•¿åº¦
+è¿” å› å€¼ ï¼š ret ---- æˆåŠŸå‘é€çš„é•¿åº¦
 *************************************************/
-void TCP_Buf_Send( uint8_t S, const uint8_t *pBuf, uint16_t Len )
+uint16_t TCP_Buf_Send( uint8_t S, const uint8_t *pBuf, uint16_t Len )
 {
+    uint8_t status = 0;
+    uint16_t freesize = 0;
     uint16_t addr = 0;
+    uint16_t ret = 0;
 
     if(0 == Len)
     {
-        return ;
+        return ret;
     }
+
+    ret = Len > SSIZE[S] ? SSIZE[S] : Len;
+
+    do{
+        freesize = Get_Sn_Tx_FSR(S);
+        status = Get_Sn_SR(S);
+        if((status != SOCK_ESTABLISHED) && (status != SOCK_CLOSE_WAIT))
+        {
+            Socket_Colse(S);
+            printf("TCP Send Disconnect!!!\n");
+            ret = 0;
+            return ret;
+        }
+    }while(freesize < ret);  
 
     addr = Get_Sn_Tx_WR(S);
 
-    W5500_Write_Buf(addr, Sn_TX_BUFFER(S), pBuf, Len);  // Ğ´ÈëÊı¾İ
+    rw_Data->write_buf_fn(addr, Sn_TX_BUFFER(S), pBuf, ret);  // å†™å…¥æ•°æ®
 
-    addr += Len;
+    addr += ret;
     Set_Sn_Tx_WR(S, addr);
     Set_Sn_CR(S, Sn_CR_SEND);
+
+    while((Get_Sn_IR(S) & Sn_IR_SEND_OK) != Sn_IR_SEND_OK)
+    {
+        if(Get_Sn_IR(S) & Sn_IR_TIMEOUT)
+        {
+            Set_Sn_IR(S, Sn_IR_TIMEOUT);
+
+        // status = Get_Sn_SR(S);
+        // if((status != SOCK_ESTABLISHED) && (status != SOCK_CLOSE_WAIT))
+        // {
+            Socket_Colse(S);
+            printf("TCP Send Timeout!!!\n");
+            ret = 0;
+            return ret;
+        }
+    }
+    Set_Sn_IR(S, Sn_IR_SEND_OK);
+
+    return ret;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º UDP_Buf_Recv
-¹¦    ÄÜ £º UDPÊı¾İ½ÓÊÕ£¨Ğ­Òé£ºIP(4 Byte) + Port(2 Byte) + data_len(2 Byte) + data(n Byte)£©
-²Î    Êı £º S ---- Socket number
-            pBuf ---- Êı¾İ
-            Len ---- ³¤¶È
+å‡½æ•°åç§° ï¼š UDP_Buf_Recv
+åŠŸ    èƒ½ ï¼š UDPæ•°æ®æ¥æ”¶ï¼ˆåè®®ï¼šIP(4 Byte) + Port(2 Byte) + data_len(2 Byte) + data(n Byte)ï¼‰
+å‚    æ•° ï¼š S ---- Socket number
+            pBuf ---- æ•°æ®
+            Len ---- é•¿åº¦
             Addr ---- remote IP
             Port ---- remote port
-·µ »Ø Öµ £º ÎŞ
+è¿” å› å€¼ ï¼š ret ---- æˆåŠŸæ¥æ”¶çš„é•¿åº¦
 *************************************************/
-void UDP_Buf_Recv( uint8_t S, uint8_t *pBuf, uint16_t Len, uint8_t *Addr, uint16_t Port )
+uint16_t UDP_Buf_Recv( uint8_t S, uint8_t *pBuf, uint16_t Len, uint8_t *Addr, uint16_t Port )
 {
     uint8_t head[8] = {0};
+    uint8_t status = 0;
+    uint16_t freesize = 0;
     uint16_t addr = 0;
-    uint16_t data_len = 0;
+    uint16_t ret = 0;
 
-    if(0 == Len)
+    if(Get_Sn_IR(S) & Sn_IR_RECV)
     {
-        return ;
+        Set_Sn_IR(S, Sn_IR_RECV);              /*æ¸…æ¥æ”¶ä¸­æ–­*/
+
+        freesize = Get_Sn_Rx_RSR(S);
+        status = Get_Sn_SR(S);
+        if((status != SOCK_UDP) && (status != SOCK_CLOSE_WAIT))
+        {
+            Socket_Colse(S);
+            printf("UDP Receive Disconnect!!!\n");
+            ret = 0;
+            return ret;
+        }
+
+        ret = freesize > Len ? Len : freesize;
+        if(0 == ret)
+        {
+            return ret;
+        }
+
+        addr = Get_Sn_Rx_RD(S);
+        rw_Data->read_buf_fn(addr, Sn_RX_BUFFER(S), head, 8);
+        addr += 8;
+
+        /* è·å–è¿œç¨‹ IP */
+        *Addr = head[0];
+        *(Addr + 1) = head[1];
+        *(Addr + 2) = head[2];
+        *(Addr + 3) = head[3];
+
+        /* è·å–è¿œç¨‹ç«¯å£ */
+        Port = head[4];
+        Port = (Port << 8) + head[5];
+
+        /* è·å–æ•°æ®é•¿åº¦ */
+        ret = head[6];
+        ret = (ret << 8) + head[7];
+
+        ret = Len > ret ? ret : Len;
+
+        rw_Data->read_buf_fn(addr, Sn_RX_BUFFER(S), pBuf, ret);  // è¯»å–æ•°æ®
+
+        addr += ret;
+        Set_Sn_Rx_RD(S, addr);
+        Set_Sn_CR(S, Sn_CR_RECV);
     }
 
-    addr = Get_Sn_Rx_RD(S);
-    W5500_Read_Buf(addr, Sn_RX_BUFFER(S), head, 8);
-    addr += 8;
-
-    /* »ñÈ¡Ô¶³Ì IP */
-    *Addr = head[0];
-    *(Addr + 1) = head[1];
-    *(Addr + 2) = head[2];
-    *(Addr + 3) = head[3];
-
-    /* »ñÈ¡Ô¶³Ì¶Ë¿Ú */
-    Port = head[4];
-    Port = (Port << 8) + head[5];
-
-    /* »ñÈ¡Êı¾İ³¤¶È */
-    data_len = head[6];
-    data_len = (data_len << 8) + head[7];
-
-    W5500_Read_Buf(addr, Sn_RX_BUFFER(S), pBuf, data_len);  // ¶ÁÈ¡Êı¾İ
-
-    addr += data_len;
-    Set_Sn_Rx_RD(S, addr);
-    Set_Sn_CR(S, Sn_CR_RECV);
+    return ret;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º UDP_Buf_Send
-¹¦    ÄÜ £º UDPÊı¾İ·¢ËÍ£¨Ğ­Òé£ºIP(4 Byte) + Port(2 Byte) + data_len(2 Byte) + data(n Byte)£©
-²Î    Êı £º S ---- Socket number
-            pBuf ---- Êı¾İ
-            Len ---- ³¤¶È
+å‡½æ•°åç§° ï¼š UDP_Buf_Send
+åŠŸ    èƒ½ ï¼š UDPæ•°æ®å‘é€ï¼ˆåè®®ï¼šIP(4 Byte) + Port(2 Byte) + data_len(2 Byte) + data(n Byte)ï¼‰
+å‚    æ•° ï¼š S ---- Socket number
+            pBuf ---- æ•°æ®
+            Len ---- é•¿åº¦
             Addr ---- remote IP
             Port ---- remote port
-·µ »Ø Öµ £º ÎŞ
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
-void UDP_Buf_Send( uint8_t S, const uint8_t *pBuf, uint16_t Len, const uint8_t *Addr, uint16_t Port )
+uint16_t UDP_Buf_Send( uint8_t S, const uint8_t *pBuf, uint16_t Len, const uint8_t *Addr, uint16_t Port )
 {
+    uint8_t status = 0;
+    uint16_t freesize = 0;
     uint16_t addr = 0;
+    uint16_t ret = 0;
 
     if(((0 == *Addr) && (0 == *(Addr + 1)) \
         && (0 == *(Addr + 2)) && (0 == *(Addr + 3))) \
             || (0 == Port) || (0 == Len))
     {
-        return ;
+        return 0;
     }
 
-    /* Ğ´ÈëÔ¶³Ì IP¡¢¶Ë¿Ú */
+    /* å†™å…¥è¿œç¨‹ IPã€ç«¯å£ */
     Set_Sn_DIPR(S, Addr);
     Set_Sn_DPORT(S, Port);
 
+    ret = Len > SSIZE[S] ? SSIZE[S] : Len;
+
+    do{
+        freesize = Get_Sn_Tx_FSR(S);
+        status = Get_Sn_SR(S);
+        if((status != SOCK_UDP) && (status != SOCK_CLOSE_WAIT))
+        {
+            Socket_Colse(S);
+            printf("UDP Send Disconnect!!!\n");
+            ret = 0;
+            return ret;
+        }
+    }while(freesize < ret);  
+
     addr = Get_Sn_Tx_WR(S);
 
-    W5500_Write_Buf(addr, Sn_TX_BUFFER(S), pBuf, Len);  // Ğ´ÈëÊı¾İ
+    rw_Data->write_buf_fn(addr, Sn_TX_BUFFER(S), pBuf, ret);  // å†™å…¥æ•°æ®
 
-    addr += Len;
+    addr += ret;
     Set_Sn_Tx_WR(S, addr);
     Set_Sn_CR(S, Sn_CR_SEND);
+
+    while((Get_Sn_IR(S) & Sn_IR_SEND_OK) != Sn_IR_SEND_OK)
+    {
+        if(Get_Sn_IR(S) & Sn_IR_TIMEOUT)
+        {
+            Set_Sn_IR(S, Sn_IR_TIMEOUT);
+            Socket_Colse(S);
+            printf("UDP Send Timeout!!!\n");
+            ret = 0;
+            return ret;
+        }
+    }
+    Set_Sn_IR(S, Sn_IR_SEND_OK);
+
+    return Len;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_Listen
-¹¦    ÄÜ £º ÉèÖÃÖ¸¶¨ Socket(0~7)×÷Îª·şÎñÆ÷µÈ´ıÔ¶³ÌÖ÷»úµÄÁ¬½Ó
-²Î    Êı £º S ---- Socket number
-            Port ---- ¶Ë¿ÚºÅ
-·µ »Ø Öµ £º 0 / 1
+å‡½æ•°åç§° ï¼š Socket_Listen
+åŠŸ    èƒ½ ï¼š è®¾ç½®æŒ‡å®š Socket(0~7)ä½œä¸ºæœåŠ¡å™¨ç­‰å¾…è¿œç¨‹ä¸»æœºçš„è¿æ¥
+å‚    æ•° ï¼š S ---- Socket number
+            Port ---- ç«¯å£å·
+è¿” å› å€¼ ï¼š 0 / 1
 *************************************************/
 _Bool Socket_Listen( uint8_t S )
 {
     if(Get_Sn_SR(S) == SOCK_INIT)
     {
-        Set_Sn_CR(S, Sn_CR_LISTEN);         // ÉèÖÃ SocketÎª¼àÌıÄ£Ê½
-        W5500_Delay_ms(10);
-        if(Get_Sn_SR(S) == SOCK_LISTEN)
+        Set_Sn_CR(S, Sn_CR_LISTEN);         // è®¾ç½® Socketä¸ºç›‘å¬æ¨¡å¼
+
+        // if(Get_Sn_SR(S) == SOCK_LISTEN)
         {
             return 1;
         }
     }
 
-//    Set_Sn_CR(S, Sn_CR_CLOSE);
     return 0;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_Connect
-¹¦    ÄÜ £º ÉèÖÃÖ¸¶¨ Socket(0~7)Îª¿Í»§¶ËÓëÔ¶³Ì·şÎñÆ÷Á¬½Ó
-²Î    Êı £º S ---- Socket number
-            Address ---- Ô¶³Ì IP
-            Port ---- ¶Ë¿ÚºÅ
-·µ »Ø Öµ £º 0 / 1
+å‡½æ•°åç§° ï¼š Socket_Connect
+åŠŸ    èƒ½ ï¼š è®¾ç½®æŒ‡å®š Socket(0~7)ä¸ºå®¢æˆ·ç«¯ä¸è¿œç¨‹æœåŠ¡å™¨è¿æ¥
+å‚    æ•° ï¼š S ---- Socket number
+            Address ---- è¿œç¨‹ IP
+            Port ---- ç«¯å£å·
+è¿” å› å€¼ ï¼š 0 / 1
 *************************************************/
 _Bool Socket_Connect( uint8_t S, uint8_t *Address, uint16_t Port )
 {
+    uint8_t status = 0;
+
     if(Get_Sn_SR(S) == SOCK_INIT)
     {
         if(((Address[0] != 0xFF) && (Address[1] != 0xFF)
@@ -342,66 +455,80 @@ _Bool Socket_Connect( uint8_t S, uint8_t *Address, uint16_t Port )
         {
             Set_Sn_DIPR(S, Address);
             Set_Sn_DPORT(S, Port);
-            Set_Sn_CR(S, Sn_CR_CONNECT);                 // ½¨Á¢Á¬½Ó
+            uint8_t pValue[4];
+            rw_Data->read_buf_fn(Sn_DIPR0, Sn_REG(S), pValue, 4);
+            printf("remote ip: %d %d %d %d\n", pValue[0], pValue[1], pValue[2], pValue[3]);
+            rw_Data->read_buf_fn(Sn_DPORT0, Sn_REG(S), pValue, 2);
+            printf("remote port: %d\n", (pValue[0]<<8) + pValue[1]);
+            Set_Sn_CR(S, Sn_CR_CONNECT);                 // å»ºç«‹è¿æ¥
 
-            while(Get_Sn_SR(S) != SOCK_SYNSENT)
-            {
-                if(Get_Sn_SR(S) == SOCK_ESTABLISHED)
+            do{
+                status = Get_Sn_SR(S);
+                // printf("TCP Client Connect status %X\n", status);
+
+                if(status == SOCK_ESTABLISHED)
                 {
+                    printf("TCP Client Connect Succeed!\n");
                     return 1;
                 }
                 else if(Get_Sn_IR(S) & Sn_IR_TIMEOUT)
                 {
                     Set_Sn_IR(S, Sn_IR_TIMEOUT);
+                    printf("TCP Client Connect Timeout!!!\n");
                     break;
                 }
-            }
+                else if(status == SOCK_CLOSED)
+                {
+                    break;
+                }
+            }while(status == SOCK_SYNSENT || status == SOCK_SYNRECV);
         }
     }
 
-//    Set_Sn_CR(S, Sn_CR_CLOSE);
+    printf("TCP Client Connect Fail!!!\n");
     return 0;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_TCP
-¹¦    ÄÜ £º ÉèÖÃÖ¸¶¨ Socket(0~7)Îª TCPÄ£Ê½
-²Î    Êı £º S ---- Socket number
-            Port ---- ¶Ë¿ÚºÅ
-·µ »Ø Öµ £º 0 / 1
+å‡½æ•°åç§° ï¼š Socket_TCP
+åŠŸ    èƒ½ ï¼š è®¾ç½®æŒ‡å®š Socket(0~7)ä¸º TCPæ¨¡å¼
+å‚    æ•° ï¼š S ---- Socket number
+            Port ---- ç«¯å£å·
+è¿” å› å€¼ ï¼š 0 / 1
 *************************************************/
 _Bool Socket_TCP( uint8_t S, uint16_t Port )
 {
-    uint16_t temp_port = 2000;
+    uint16_t temp_port = 8080;
 
-    Socket_Colse(S);
     Set_Sn_MR(S, Sn_MR_TCP);
     if(Port != 0)
     {
-        Set_Sn_PORT(S, Port);               // ÅäÖÃ Socket¶Ë¿Ú
+        Set_Sn_PORT(S, Port);               // é…ç½® Socketç«¯å£
     }
     else
     {
         temp_port = Local_Net.LPort + 1;
         Set_Sn_PORT(S, temp_port);
     }
-    Set_Sn_CR(S, Sn_CR_OPEN);               // ´ò¿ª Socket
-    W5500_Delay_ms(10);
+    Set_Sn_CR(S, Sn_CR_OPEN);               // æ‰“å¼€ Socket
+
     if(Get_Sn_SR(S) == SOCK_INIT)
     {
+        printf("TCP Client Config Succeed!\n");
         return 1;
     }
 
-    Set_Sn_CR(S, Sn_CR_CLOSE);
+    Socket_Colse(S);
+    printf("TCP Client Config Fail!!!\n");
     return 0;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_UDP
-¹¦    ÄÜ £º ÉèÖÃÖ¸¶¨Socket(0~7)Îª UDP(¹ã²¥)Ä£Ê½
-²Î    Êı £º S ---- Socket number
-            Port ---- ¶Ë¿ÚºÅ
-·µ »Ø Öµ £º 0 / 1
+å‡½æ•°åç§° ï¼š Socket_UDP
+åŠŸ    èƒ½ ï¼š è®¾ç½®æŒ‡å®šSocket(0~7)ä¸º UDP(å¹¿æ’­)æ¨¡å¼
+å‚    æ•° ï¼š S ---- Socket number
+            Port ---- ç«¯å£å·
+è¿” å› å€¼ ï¼š 0 / 1
 *************************************************/
 _Bool Socket_UDP( uint8_t S, uint16_t Port )
 {
@@ -411,30 +538,32 @@ _Bool Socket_UDP( uint8_t S, uint16_t Port )
     Set_Sn_MR(S, Sn_MR_UDP);
     if(Port != 0)
     {
-        Set_Sn_PORT(S, Port);               // ÅäÖÃ Socket¶Ë¿Ú
+        Set_Sn_PORT(S, Port);               // é…ç½® Socketç«¯å£
     }
     else
     {
         temp_port = Local_Net.LPort + 1;
         Set_Sn_PORT(S, temp_port);
     }
-    Set_Sn_CR(S, Sn_CR_OPEN);               // ´ò¿ª Socket
-    W5500_Delay_ms(10);
+    Set_Sn_CR(S, Sn_CR_OPEN);               // æ‰“å¼€ Socket
+
     if(Get_Sn_SR(S) == SOCK_UDP)
     {
+        printf("UDP Config Succeed!\n");
         return 1;
     }
 
-    Set_Sn_CR(S, Sn_CR_CLOSE);
+    Socket_Colse(S);
+    printf("UDP Config Fail!!!\n");
     return 0;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_MACRAW
-¹¦    ÄÜ £º ÉèÖÃÎª ÒÔÌ«Íø MACÍ¨ĞÅÄ£Ê½
-²Î    Êı £º S ---- Socket number(½öÎªSocket 0)
-            Port ---- ¶Ë¿ÚºÅ
-·µ »Ø Öµ £º 0 / 1
+å‡½æ•°åç§° ï¼š Socket_MACRAW
+åŠŸ    èƒ½ ï¼š è®¾ç½®ä¸º ä»¥å¤ªç½‘ MACé€šä¿¡æ¨¡å¼
+å‚    æ•° ï¼š S ---- Socket number(ä»…ä¸ºSocket 0)
+            Port ---- ç«¯å£å·
+è¿” å› å€¼ ï¼š 0 / 1
 *************************************************/
 _Bool Socket_MACRAW( uint8_t S, uint16_t Port )
 {
@@ -447,55 +576,199 @@ _Bool Socket_MACRAW( uint8_t S, uint16_t Port )
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Socket_Config
-¹¦    ÄÜ £º Socket ÅäÖÃ
-²Î    Êı £º S ---- Socket number
-            Protocol ---- Ğ­Òé >>>> ¶Ë¿ÚµÄÔËĞĞÄ£Ê½
-            Port ---- SocketµÄ¶Ë¿ÚºÅ
-·µ »Ø Öµ £º 0 / 1
+å‡½æ•°åç§° ï¼š Socket_Config
+åŠŸ    èƒ½ ï¼š Socket é…ç½®
+å‚    æ•° ï¼š S ---- Socket number
+            Protocol ---- åè®® >>>> ç«¯å£çš„è¿è¡Œæ¨¡å¼
+            Port ---- Socketçš„ç«¯å£å·
+è¿” å› å€¼ ï¼š 0 / 1
 *************************************************/
 uint8_t Socket_Config( uint8_t S, uint8_t Protocol, uint16_t Port )
 {
     uint8_t flag = 0;
 
+    // if(0 == Detect_Gateway(S))
+    //     return 0;
+
     switch(Protocol)
     {
         case TCP_SERVER:
-                if(Socket_TCP(S, Port))
-                {
-                    flag = TCP_SERVER;
-                }
-                break;
+            if(Socket_TCP(S, Port))
+            {
+                flag = TCP_SERVER;
+            }
+            break;
 
         case TCP_CLIENT:
-                if(Socket_TCP(S, Port))
-                {
-                    flag = TCP_CLIENT;
-                }
-                break;
+            if(Socket_TCP(S, Port))
+            {
+                flag = TCP_CLIENT;
+            }
+            break;
 
         case UDP_MODE:
-                if(Socket_UDP(S, Port))
-                {
-                    flag = UDP_MODE;
-                }
-                break;
+            if(Socket_UDP(S, Port))
+            {
+                flag = UDP_MODE;
+            }
+            break;
 
         case MACRAW_MODE:
-                if(Socket_MACRAW(S, Port))
-                {
-                    flag = MACRAW_MODE;
-                }
-                break;
+            if(Socket_MACRAW(S, Port))
+            {
+                flag = MACRAW_MODE;
+            }
+            break;
 
         default:
-                Socket_Colse(S);
-                break;
+            Socket_Colse(S);
+            break;
     }
 
     return flag;
 }
 
+/************************************************
+å‡½æ•°åç§° ï¼š Socket_Buf_Init
+åŠŸ    èƒ½ ï¼š æ ¹æ®ä½¿ç”¨çš„é€šé“è®¾ç½®å‘é€å’Œæ¥æ”¶ç¼“å†²åŒºå¤§å°
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š æ— 
+*************************************************/
+void Socket_Buf_Init( uint8_t *Tx_size, uint8_t *Rx_size )
+{
+    uint8_t i;
+    uint16_t ssum = 0,rsum = 0;
+
+    for (i = 0; i < MAX_SOCK_NUM; i++)       // æŒ‰æ¯ä¸ªé€šé“è®¾ç½® Txå’Œ Rxå†…å­˜çš„å¤§å°
+    {
+        rw_Data->write_byte_fn(Sn_RXBUF_SIZE, Sn_REG(i), Tx_size[i]);
+        rw_Data->write_byte_fn(Sn_TXBUF_SIZE, Sn_REG(i), Rx_size[i]);
+
+#ifdef _USART_DEBUG
+        printf("Tx_size[%d]: %d, Sn_TXBUF_SIZE = %d\r\n",i, Tx_size[i], IINCHIP_READ(Sn_TXMEM_SIZE(i)));
+        printf("Rx_size[%d]: %d, Sn_RXBUF_SIZE = %d\r\n",i, Rx_size[i], IINCHIP_READ(Sn_RXMEM_SIZE(i)));
+
+#endif /* _USART_DEBUG */
+
+        SSIZE[i] = (uint16_t)(0);
+        RSIZE[i] = (uint16_t)(0);
+
+        if (ssum <= 16384)  // all max send size
+        {
+            SSIZE[i] = (uint16_t)Tx_size[i]*(1024);
+        }
+
+        if (rsum <= 16384)  // all max receive size
+        {
+            RSIZE[i]=(uint16_t)Rx_size[i]*(1024);
+        }
+        ssum += SSIZE[i];
+        rsum += RSIZE[i];
+    }
+}
+
+/************************************************
+å‡½æ•°åç§° ï¼š Detect_Gateway
+åŠŸ    èƒ½ ï¼š æ£€æŸ¥ç½‘å…³æœåŠ¡å™¨
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
+*************************************************/
+#if 0
+static _Bool Detect_Gateway( uint8_t S )
+{
+    uint8_t ret = 0;
+
+    Set_Sn_DIPR(S, Socket_0.RIp);
+    Set_Sn_MR(S, Sn_MR_TCP);
+    Set_Sn_CR(S, Sn_CR_OPEN);
+
+    if(Get_Sn_SR(S) == SOCK_INIT)
+    {
+        Set_Sn_CR(S, Sn_CR_CONNECT);
+
+        do{
+            if(Get_Sn_IR(S) & Sn_IR_TIMEOUT)
+            {
+                Set_Sn_IR(S, Sn_IR_TIMEOUT);
+                printf("Detect Gateway Timeout!!!\n");
+                break;
+            }
+            else if(rw_Data->read_byte_fn(Sn_DHAR0, Sn_REG(S)) != 0xFF)
+            {
+                Socket_Colse(S);
+                printf("Succeed Detect Gateway!\n");
+                ret = 1;
+                break;
+            }
+        }while(1);
+    }
+
+    return ret;
+}
+#endif
+
+/************************************************
+å‡½æ•°åç§° ï¼š Load_Net_Parameters
+åŠŸ    èƒ½ ï¼š è£…è½½ç½‘ç»œå‚æ•°
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
+*************************************************/
+static void Load_Net_Parameters(void)
+{
+    /* å®šä¹‰æœ¬åœ°ç«¯ IPä¿¡æ¯ */
+    uint8_t local_ip[4] = {192, 168, 1, 110};                   /* å®šä¹‰ W5500é»˜è®¤IPåœ°å€ */
+    uint8_t subnet[4] = {255, 255, 255, 0};                     /* å®šä¹‰ W5500é»˜è®¤å­ç½‘æ©ç  */
+    uint8_t gateway[4] = {192, 168, 1, 1};                      /* å®šä¹‰ W5500é»˜è®¤ç½‘å…³ */
+    uint8_t dns_server[4] = {114, 114, 114, 114};               /* å®šä¹‰ W5500é»˜è®¤ DNS */
+    uint8_t local_mac[6] = {0x00, 0x08, 0xdc, 0x11, 0x11, 0x11};/* å®šä¹‰ W5500é»˜è®¤ MACåœ°å€ */
+    uint16_t local_port = 5000;                                 /* å®šä¹‰æœ¬åœ°ç«¯å£ */
+
+    /* å®šä¹‰è¿œç¨‹ç«¯ IPä¿¡æ¯ */
+    uint8_t remote_ip[4] = {192, 168, 1, 100};                  /* è¿œç¨‹ IPåœ°å€ */
+    uint8_t remote_mac[6] = {0x00, 0x06, 0x5D, 0x18, 0x02, 0x11};/* è¿œç¨‹ MACåœ°å€ */
+    uint16_t remote_port = 8080;                                /* è¿œç¨‹ç«¯å£å· */
+
+    /* é…ç½®ä¿¡æ¯ */
+    memcpy(Local_Net.LIp, local_ip, 4);
+    memcpy(Local_Net.Sub, subnet, 4);
+    memcpy(Local_Net.Gw, gateway, 4);
+    memcpy(Local_Net.Dns, dns_server, 4);
+    memcpy(Local_Net.LMac, local_mac, 6);
+    Local_Net.LPort = local_port;
+
+    memcpy(Socket_0.RIp, remote_ip, 4);
+    memcpy(Socket_0.RMac, remote_mac, 6);
+    Socket_0.RPort = remote_port;
+}
+
+/************************************************
+å‡½æ•°åç§° ï¼š W5500_Net_Config
+åŠŸ    èƒ½ ï¼š ç½‘ç»œé…ç½®
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
+*************************************************/
+void W5500_Net_Config(void)
+{
+    uint8_t temp[4] = {0};
+
+    Load_Net_Parameters();
+
+    Set_GAR(Local_Net.Gw);                              // è®¾ç½®ç½‘å…³(Gateway)çš„IPåœ°å€
+    Set_SUBR(Local_Net.Sub);                            // è®¾ç½®å­ç½‘æ©ç (MASK)å€¼
+    Set_SHAR(Local_Net.LMac);                           // è®¾ç½®æº MACåœ°å€
+    Set_SIPR(Local_Net.LIp);                            // è®¾ç½®æº IPåœ°å€
+
+    Get_SIPR (temp);
+    printf("IP : %d.%d.%d.%d\n", temp[0],temp[1],temp[2],temp[3]);
+
+    Get_SUBR(temp);
+    printf("MASK : %d.%d.%d.%d\n", temp[0],temp[1],temp[2],temp[3]);
+
+    Get_GAR(temp);
+    printf("Gateway : %d.%d.%d.%d\n", temp[0],temp[1],temp[2],temp[3]);
+
+    rw_Data = Get_W5500_Hooks();
+}
 
 /*---------------------------- END OF FILE ----------------------------*/
 

@@ -17,7 +17,7 @@
 - [x] Nixie
 - [x] Ultrasound
 - [x] Sense
-- [ ] W5500
+- [x] W5500
 - [ ] Font_library
 - [ ] IrDA_decode
 - [ ] Touch_control

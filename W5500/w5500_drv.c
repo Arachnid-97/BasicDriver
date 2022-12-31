@@ -1,25 +1,30 @@
 #include "w5500_drv.h"
-#include <string.h>
+#include <assert.h>
 #include "w5500.h"
 #include "w5500_mode.h"
 #include "bsp_uart.h"
-//#define NDEBUG              //È¡Ïû¶ÏÑÔ
-#include <assert.h>         // ¶ÏÑÔ¿â
+
+#include "FreeRTOS.h"
+#include "task.h"
 
 
-#define _USART_DEBUG
+#define USING_HARDWARE_SPI  0
 
-LocalNet_TypeDef    Local_Net;
-RemoteNet_TypeDef   Socket_0;           // Çë¸ù¾İÊ¹ÓÃµÄ Socket¶Ë¿Ú¶¨Òå½á¹¹Ìå
+#define WAIT_TIME		2
 
-uint16_t SSIZE[MAX_SOCK_NUM] = {0,0,0,0,0,0,0,0};     // Max Tx buffer
-uint16_t RSIZE[MAX_SOCK_NUM] = {0,0,0,0,0,0,0,0};     // Max Rx buffer
+#define W5500_STACK_SIZE          256                      // ä»»åŠ¡å †æ ˆå¤§å°
+#define W5500_TASK_PRIORITY       5                        // ä»»åŠ¡ä¼˜å…ˆçº§
+
+static W5500_Drv_Hooks w5500_drv;
+
+static void prvW5500_App_Task(void *pvParameters);
+
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Delay_us
-¹¦    ÄÜ £º Èí¼şºÁÃëÑÓÊ±
-²Î    Êı £º Count ---- ´ÎÊı
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Delay_us
+åŠŸ    èƒ½ ï¼š è½¯ä»¶æ¯«ç§’å»¶æ—¶
+å‚    æ•° ï¼š Count ---- æ¬¡æ•°
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 static void W5500_Delay_us( uint32_t Count )
 {
@@ -27,13 +32,15 @@ static void W5500_Delay_us( uint32_t Count )
     {
         Count--;
     }
+
+    // vTaskDelay(Count);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Delay_ms
-¹¦    ÄÜ £º Èí¼şºÁÃëÑÓÊ±
-²Î    Êı £º Count ---- ´ÎÊı
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Delay_ms
+åŠŸ    èƒ½ ï¼š è½¯ä»¶æ¯«ç§’å»¶æ—¶
+å‚    æ•° ï¼š Count ---- æ¬¡æ•°
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 
 #if 1
@@ -43,26 +50,66 @@ void W5500_Delay_ms( uint32_t Count )
 
     while(Count--)
     {
-        for(i = 1240;i > 0;i--);        // ¸ù¾İÕğµ´Ê±¼äÎª iÈ¡Öµ
+        for(i = 1240; i > 0; i--);        // æ ¹æ®éœ‡è¡æ—¶é—´ä¸º iå–å€¼
     }
+
+    // vTaskDelay(Count / portTICK_RATE_MS);
 }
 
 #endif
 
+#if USING_HARDWARE_SPI
+static uint8_t TimeOut_Callback(char ErrorCode)
+{
+	/* ç­‰å¾…è¶…æ—¶åçš„å¤„ç†,è¾“å‡ºé”™è¯¯ä¿¡æ¯ */
+	DEBUG_PRINTF("SPI waiting overtime! EerrorCode = %d\n", ErrorCode);
+
+	return 0;
+}
+#endif
+
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Data_RW
-¹¦    ÄÜ £º W5500Êı¾İ¶ÁĞ´
-²Î    Êı £º Data ---- Êı¾İ
-·µ »Ø Öµ £º Data ---- Êı¾İ
+å‡½æ•°åç§° ï¼š W5500_Data_RW
+åŠŸ    èƒ½ ï¼š W5500æ•°æ®è¯»å†™
+å‚    æ•° ï¼š Data ---- æ•°æ®
+è¿” å› å€¼ ï¼š Data ---- æ•°æ®
 *************************************************/
 static uint8_t W5500_Data_RW( uint8_t Data )
 {
     uint8_t i;
 
-    W5500_SCLK(LOW);
+#if USING_HARDWARE_SPI
+	__IO uint32_t W25Q_TimeOut = 0x1000;
 
+	/* Wait for W25Q_SPIx Tx buffer empty */
+	while (SPI_I2S_GetFlagStatus(SPI4, SPI_I2S_FLAG_TXE) == RESET)
+	{
+		if (0 == (W25Q_TimeOut--))
+			return TimeOut_Callback(0);
+	}
+
+	/* Send byte through the W25Q_SPIx peripheral */
+	SPI_I2S_SendData(SPI4, Data);
+
+	W25Q_TimeOut = 0x1000;
+
+	/* Wait for W25Q_SPIx data reception */
+	while (SPI_I2S_GetFlagStatus(SPI4, SPI_I2S_FLAG_RXNE) == RESET)
+	{
+		if (0 == (W25Q_TimeOut--))
+			return TimeOut_Callback(1);
+	}
+
+	/* Return the byte read from the W25Q_SPIx bus */
+	Data = SPI_I2S_ReceiveData(SPI4);
+
+#else
+
+#if 1   /* SPI Mode == 0 */
     for(i = 0;i < 8;i++)
     {
+        W5500_SCLK(LOW);
+        W5500_Delay_us(WAIT_TIME);
 		if(Data & 0x80)
 		{
 			W5500_MOSI(HIGH);
@@ -72,21 +119,48 @@ static uint8_t W5500_Data_RW( uint8_t Data )
 			W5500_MOSI(LOW);
 		}
 		Data <<= 1;
+        W5500_Delay_us(WAIT_TIME);
         W5500_SCLK(HIGH);
+        W5500_Delay_us(WAIT_TIME);
         Data |= W5500_MISO;
-        W5500_SCLK(LOW);
     }
+
+    W5500_SCLK(LOW);
+#else   /* SPI Mode == 3 */
+    W5500_SCLK(HIGH);
+
+    for(i = 0;i < 8;i++)
+    {
+        W5500_SCLK(LOW);
+        W5500_Delay_us(WAIT_TIME);
+		if(Data & 0x80)
+		{
+			W5500_MOSI(HIGH);
+		}
+		else
+		{
+			W5500_MOSI(LOW);
+		}
+		Data <<= 1;
+        W5500_Delay_us(WAIT_TIME);
+        W5500_SCLK(HIGH);
+        W5500_Delay_us(WAIT_TIME);
+        Data |= W5500_MISO;
+    }
+#endif
+
+#endif /* USING_HARDWARE_SPI */
 
     return Data;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Write_Byte
-¹¦    ÄÜ £º W5500Ğ´Ò»¸ö×Ö½Ú
-²Î    Êı £º Address ---- µØÖ·
-            Control ---- ¿ØÖÆ
-			Value ---- ÊäÈëÖµ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Write_Byte
+åŠŸ    èƒ½ ï¼š W5500å†™ä¸€ä¸ªå­—èŠ‚
+å‚    æ•° ï¼š Address ---- åœ°å€
+            Control ---- æ§åˆ¶
+			Value ---- è¾“å…¥å€¼
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void W5500_Write_Byte( uint16_t Address, uint8_t Control, uint8_t Value )
 {
@@ -99,13 +173,13 @@ void W5500_Write_Byte( uint16_t Address, uint8_t Control, uint8_t Value )
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Write_Buf
-¹¦    ÄÜ £º W5500Ğ´ N¸ö×Ö½Ú
-²Î    Êı £º Address ---- µØÖ·
-            Control ---- ¿ØÖÆ
-			pBuf ---- Êı¾İ
-            Len ---- ³¤¶È
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Write_Buf
+åŠŸ    èƒ½ ï¼š W5500å†™ Nä¸ªå­—èŠ‚
+å‚    æ•° ï¼š Address ---- åœ°å€
+            Control ---- æ§åˆ¶
+			pBuf ---- æ•°æ®
+            Len ---- é•¿åº¦
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void W5500_Write_Buf( uint16_t Address, uint8_t Control, const uint8_t *pBuf, uint16_t Len )
 {
@@ -123,11 +197,11 @@ void W5500_Write_Buf( uint16_t Address, uint8_t Control, const uint8_t *pBuf, ui
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Read_Byte
-¹¦    ÄÜ £º W5500¶ÁÒ»¸ö×Ö½Ú
-²Î    Êı £º Address ---- µØÖ·
-            Control ---- ¿ØÖÆ
-·µ »Ø Öµ £º data ---- Êı¾İ
+å‡½æ•°åç§° ï¼š W5500_Read_Byte
+åŠŸ    èƒ½ ï¼š W5500è¯»ä¸€ä¸ªå­—èŠ‚
+å‚    æ•° ï¼š Address ---- åœ°å€
+            Control ---- æ§åˆ¶
+è¿” å› å€¼ ï¼š data ---- æ•°æ®
 *************************************************/
 uint8_t W5500_Read_Byte( uint16_t Address, uint8_t Control )
 {
@@ -144,13 +218,13 @@ uint8_t W5500_Read_Byte( uint16_t Address, uint8_t Control )
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Read_Buf
-¹¦    ÄÜ £º W5500¶Á N¸ö×Ö½Ú
-²Î    Êı £º Address ---- µØÖ·
-            Control ---- ¿ØÖÆ
-			pBuf ---- Êı¾İ
-            Len ---- ³¤¶È
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Read_Buf
+åŠŸ    èƒ½ ï¼š W5500è¯» Nä¸ªå­—èŠ‚
+å‚    æ•° ï¼š Address ---- åœ°å€
+            Control ---- æ§åˆ¶
+			pBuf ---- æ•°æ®
+            Len ---- é•¿åº¦
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void W5500_Read_Buf( uint16_t Address, uint8_t Control, uint8_t *pBuf, uint16_t Len )
 {
@@ -169,159 +243,175 @@ void W5500_Read_Buf( uint16_t Address, uint8_t Control, uint8_t *pBuf, uint16_t 
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Reset
-¹¦    ÄÜ £º W5500ÖØÖÃ
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Reset
+åŠŸ    èƒ½ ï¼š W5500é‡ç½®
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 static void W5500_Reset(void)
 {
     W5500_RST(LOW);
-    W5500_Delay_us(800);        // ¸´Î»Ê±ÖÓÖÜÆÚÖÁÉÙ 500us
+    W5500_Delay_us(800);        // å¤ä½æ—¶é’Ÿå‘¨æœŸè‡³å°‘ 500us
     W5500_RST(HIGH);
-    W5500_Delay_us(100);
-    while(0 == (Get_PHYCFGR() & LINK));    //µÈ´ıÒÔÌ«ÍøÁ¬½ÓÍê³É
+    W5500_Delay_ms(1600);
+    while(0 == Get_ETH_Link());    //ç­‰å¾…ä»¥å¤ªç½‘è¿æ¥å®Œæˆ
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Detect_Gateway
-¹¦    ÄÜ £º ¼ì²éÍø¹Ø·şÎñÆ÷
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Config
+åŠŸ    èƒ½ ï¼š W5500é…ç½®
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
-
-#if 0
-static void Detect_Gateway(void)
+static void W5500_GPIO_Config(void)
 {
+	GPIO_InitTypeDef GPIO_InitStructure;
 
-}
-
-#endif
-
-/************************************************
-º¯ÊıÃû³Æ £º Load_Net_Parameters
-¹¦    ÄÜ £º ×°ÔØÍøÂç²ÎÊı
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
-*************************************************/
-static void Load_Net_Parameters(void)
-{
-    /* ¶¨Òå±¾µØ¶Ë IPĞÅÏ¢ */
-    uint8_t local_ip[4] = {192,168,1,200};				    /* ¶¨Òå W5500Ä¬ÈÏIPµØÖ· */
-    uint8_t subnet[4] = {255,255,255,0};				    /* ¶¨Òå W5500Ä¬ÈÏ×ÓÍøÑÚÂë */
-    uint8_t gateway[4] = {192,168,1,1};					    /* ¶¨Òå W5500Ä¬ÈÏÍø¹Ø */
-    uint8_t dns_server[4] = {114,114,114,114};			    /* ¶¨Òå W5500Ä¬ÈÏ DNS */
-    uint8_t local_mac[6] = {0x00,0x08,0xdc,0x11,0x11,0x11}; /* ¶¨Òå W5500Ä¬ÈÏ MACµØÖ· */
-    uint16_t local_port = 5000;	                       	    /* ¶¨Òå±¾µØ¶Ë¿Ú */
-
-    /* ¶¨ÒåÔ¶³Ì¶Ë IPĞÅÏ¢ */
-    uint8_t remote_ip[4] = {192,168,1,100};				    /* Ô¶³Ì IPµØÖ· */
-    uint8_t remote_mac[6] = {0x00,0x06,0x5D,0x18,0x02,0x11};/* Ô¶³Ì MACµØÖ· */
-    uint16_t remote_port = 8000;						    /* Ô¶³Ì¶Ë¿ÚºÅ */
-
-    /* ÅäÖÃĞÅÏ¢ */
-    memcpy(Local_Net.LIp, local_ip, 4);
-    memcpy(Local_Net.Sub, subnet, 4);
-    memcpy(Local_Net.Gw, gateway, 4);
-    memcpy(Local_Net.Dns, dns_server, 4);
-    memcpy(Local_Net.LMac, local_mac, 6);
-    Local_Net.LPort = local_port;
-
-    memcpy(Socket_0.RIp, remote_ip, 4);
-    memcpy(Socket_0.RMac, remote_mac, 6);
-    Socket_0.RPort = remote_port;
-}
-
-/************************************************
-º¯ÊıÃû³Æ £º W5500_Config
-¹¦    ÄÜ £º W5500ÅäÖÃ
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
-*************************************************/
-static void W5500_Config(void)
-{
     /* W5500_SCS */
-    PD_DDR_DDR1 = 1;
-    PD_CR1_C11 = 1;
-    PD_CR2_C21 = 0;
+	W5500_SCS_Clock_FUN(W5500_SCS_CLK, ENABLE);
+	GPIO_InitStructure.GPIO_Pin = W5500_SCS_PINS;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Fast_Speed;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+	GPIO_Init(W5500_SCS_PORT, &GPIO_InitStructure);
 
+    W5500_SCS(HIGH);
 
     /* W5500_INT */
-    PC_DDR_DDR5 = 0;
-    PC_CR1_C15 = 1;
-    PC_CR2_C25 = 0;
-
+	W5500_INT_Clock_FUN(W5500_INT_CLK, ENABLE);
+	GPIO_InitStructure.GPIO_Pin = W5500_INT_PINS;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Fast_Speed;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+	GPIO_Init(W5500_INT_PORT, &GPIO_InitStructure);
 
     /* W5500_RST */
-    PC_DDR_DDR6 = 1;
-    PC_CR1_C16 = 1;
-    PC_CR2_C26 = 0;
+	W5500_RST_Clock_FUN(W5500_RST_CLK, ENABLE);
+	GPIO_InitStructure.GPIO_Pin = W5500_RST_PINS;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Fast_Speed;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+	GPIO_Init(W5500_RST_PORT, &GPIO_InitStructure);
 
-
+#if (0 == USING_HARDWARE_SPI)
     /* W5500_SCLK */
-    PC_DDR_DDR7 = 1;
-    PC_CR1_C17 = 1;
-    PC_CR2_C27 = 1;
-
+	GPIO_InitStructure.GPIO_Pin = W5500_SCLK_PINS;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;
+	GPIO_Init(W5500_SCLK_PORT, &GPIO_InitStructure);
 
     /* W5500_MISO */
-    PD_DDR_DDR3 = 0;
-    PD_CR1_C13 = 1;
-    PD_CR2_C23 = 0;
-
+	GPIO_InitStructure.GPIO_Pin = W5500_MISO_PINS;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+	GPIO_Init(W5500_MISO_PORT, &GPIO_InitStructure);
 
     /* W5500_MOSI */
-    PD_DDR_DDR2 = 1;
-    PD_CR1_C12 = 1;
-    PD_CR2_C22 = 1;
+	GPIO_InitStructure.GPIO_Pin = W5500_MOSI_PINS;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;
+	GPIO_Init(W5500_MOSI_PORT, &GPIO_InitStructure);
+#else
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI4, ENABLE);
+	GPIO_PinAFConfig(W5500_SCLK_PORT, W5500_SCLK_SOURCE, GPIO_AF_SPI4);
+	GPIO_PinAFConfig(W5500_MISO_PORT, W5500_MISO_SOURCE, GPIO_AF_SPI4);
+	GPIO_PinAFConfig(W5500_MOSI_PORT, W5500_MOSI_SOURCE, GPIO_AF_SPI4);
 
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Fast_Speed;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_DOWN;
+
+    /* SPI SCK pin configuration */
+	GPIO_InitStructure.GPIO_Pin = W5500_SCLK_PINS;
+	GPIO_Init(W5500_SCLK_PORT, &GPIO_InitStructure);
+
+	/* SPI MISO pin configuration */
+	GPIO_InitStructure.GPIO_Pin = W5500_MISO_PINS;
+	GPIO_Init(W5500_MISO_PORT, &GPIO_InitStructure);
+
+    /* SPI MOSI pin configuration */
+	GPIO_InitStructure.GPIO_Pin = W5500_MOSI_PINS;
+	GPIO_Init(W5500_MOSI_PORT, &GPIO_InitStructure);
+
+	/* W25Q_SPIx configuration */
+    SPI_InitTypeDef SPI_InitStructure;
+	SPI_InitStructure.SPI_Direction = SPI_Direction_2Lines_FullDuplex;
+	SPI_InitStructure.SPI_Mode = SPI_Mode_Master;
+	SPI_InitStructure.SPI_DataSize = SPI_DataSize_8b;
+	SPI_InitStructure.SPI_CPOL = SPI_CPOL_High;
+	SPI_InitStructure.SPI_CPHA = SPI_CPHA_2Edge;
+	SPI_InitStructure.SPI_NSS = SPI_NSS_Soft;
+	SPI_InitStructure.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_4;
+	SPI_InitStructure.SPI_FirstBit = SPI_FirstBit_MSB;
+	SPI_InitStructure.SPI_CRCPolynomial = 7;
+	SPI_Init(SPI4, &SPI_InitStructure);
+
+	/* Disable W25Q_SPIx CRC calculation */
+	SPI_CalculateCRC(SPI4, DISABLE);
+
+	/* Enable W25Q_SPIx */
+	SPI_Cmd(SPI4, ENABLE);
+#endif
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º W5500_Init
-¹¦    ÄÜ £º W5500³õÊ¼»¯
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š W5500_Init
+åŠŸ    èƒ½ ï¼š W5500åˆå§‹åŒ–
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void W5500_Init(void)
 {
-    uint8_t temp[4] = {0};
     uint8_t txsize[MAX_SOCK_NUM] = {2,2,2,2,2,2,2,2};   // tx buffer set K bits
     uint8_t rxsize[MAX_SOCK_NUM] = {2,2,2,2,2,2,2,2};   // rx buffet set K bits
 
+    w5500_drv.write_byte_fn = W5500_Write_Byte;
+    w5500_drv.write_buf_fn = W5500_Write_Buf;
+    w5500_drv.read_byte_fn = W5500_Read_Byte;
+    w5500_drv.read_buf_fn = W5500_Read_Buf;
+    W5500_InitHooks(&w5500_drv);
 
-    W5500_Config();
-    W5500_Reset();                                      // Ó²¸´Î» W5500
-    Load_Net_Parameters();
+    W5500_GPIO_Config();
+    W5500_Reset();                                      // ç¡¬å¤ä½ W5500
 
-    Set_GAR(Local_Net.Gw);                              // ÉèÖÃÍø¹Ø(Gateway)µÄIPµØÖ·
-    Set_SUBR(Local_Net.Sub);                            // ÉèÖÃ×ÓÍøÑÚÂë(MASK)Öµ
-    Set_SHAR(Local_Net.LMac);                           // ÉèÖÃÔ´ MACµØÖ·
-    Set_SIPR(Local_Net.LIp);                            // ÉèÖÃÔ´ IPµØÖ·
+    W5500_Net_Config();
 
-#ifdef _USART_DEBUG
-    Get_SIPR (temp);
-    UART1_SendString(temp, 4);
-//    printf("IP : %d.%d.%d.%d\r\n", temp[0],temp[1],temp[2],temp[3]);
+    Socket_Buf_Init(txsize, rxsize);                    // è®¾ç½®å‘é€ç¼“å†²åŒºå’Œæ¥æ”¶ç¼“å†²åŒºçš„å¤§å°
+    Set_RTR(0x07d0);                                    // è®¾ç½®é‡è¯•æ—¶é—´ï¼Œæ¯ä¸€å•ä½æ•°å€¼ä¸º100å¾®ç§’ï¼Œé»˜è®¤ä¸º2000(200ms)
+    Set_RCR(3);                                         // è®¾ç½®é‡è¯•æ¬¡æ•°ï¼Œé»˜è®¤ä¸º8æ¬¡ï¼Œå¦‚æœé‡å‘çš„æ¬¡æ•°è¶…è¿‡è®¾å®šå€¼,åˆ™äº§ç”Ÿè¶…æ—¶ä¸­æ–­(ç›¸å…³çš„ç«¯å£ä¸­æ–­å¯„å­˜å™¨ä¸­çš„Sn_IR è¶…æ—¶ä½(TIMEOUT)ç½®â€œ1â€)
 
-    Get_SUBR(temp);
-    UART1_SendString(temp, 4);
-//    printf("MASK : %d.%d.%d.%d\r\n", temp[0],temp[1],temp[2],temp[3]);
+    BaseType_t xReturn;
 
-    Get_GAR(temp);
-    UART1_SendString(temp, 4);
-//    printf("Gateway : %d.%d.%d.%d\r\n", temp[0],temp[1],temp[2],temp[3]);
+    xReturn = xTaskCreate(prvW5500_App_Task, "prvW5500_App_Task", W5500_STACK_SIZE, NULL, W5500_TASK_PRIORITY, NULL);
+    if (pdPASS != xReturn)
+    {
+        return; //åˆ›å»ºä»»åŠ¡å¤±è´¥
+    }
+}
 
-#endif /* _USART_DEBUG */
-
-    Socket_Buf_Init(txsize, rxsize);                    // ÉèÖÃ·¢ËÍ»º³åÇøºÍ½ÓÊÕ»º³åÇøµÄ´óĞ¡
-    Set_RTR(0x07d0);                                    // ÉèÖÃÖØÊÔÊ±¼ä£¬Ã¿Ò»µ¥Î»ÊıÖµÎª100Î¢Ãë£¬Ä¬ÈÏÎª2000(200ms)
-    Set_RCR(8);                                         // ÉèÖÃÖØÊÔ´ÎÊı£¬Ä¬ÈÏÎª8´Î£¬Èç¹ûÖØ·¢µÄ´ÎÊı³¬¹ıÉè¶¨Öµ,Ôò²úÉú³¬Ê±ÖĞ¶Ï(Ïà¹ØµÄ¶Ë¿ÚÖĞ¶Ï¼Ä´æÆ÷ÖĞµÄSn_IR ³¬Ê±Î»(TIMEOUT)ÖÃ¡°1¡±)
-
-//    if(Socket_Config(SOCK_TCP_C_PORT, TCP_SERVER, Local_Net.LPort) == TCP_CLIENT );
-//    {
-//
-//    }
+/************************************************
+å‡½æ•°åç§° ï¼š prvCANSend_Task
+åŠŸ    èƒ½ ï¼š CANå‘é€åº”ç”¨ä»»åŠ¡ç¨‹åº
+å‚    æ•° ï¼š pvParameters
+è¿” å› å€¼ ï¼š æ— 
+*************************************************/
+static void prvW5500_App_Task(void *pvParameters)
+{
+    while(1)
+    {
+		W5500_TCP_Client();
+		// W5500_TCP_Server();
+        // W5500_UDP_Deal();
+        vTaskDelay(300 / portTICK_RATE_MS);
+        // W5500_Delay_ms(1600);
+    }
 }
 
 

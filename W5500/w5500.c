@@ -1,438 +1,436 @@
 #include "w5500.h"
-#include "w5500_drv.h"
+#include "w5500_reg.h"
 
+
+static W5500_Drv_Hooks device = {NULL, NULL, NULL, NULL};
+
+void W5500_InitHooks(W5500_Drv_Hooks* Hooks)
+{
+    if(Hooks == NULL)
+        return;
+
+    device.write_byte_fn = Hooks->write_byte_fn;
+    device.write_buf_fn = Hooks->write_buf_fn;
+
+    device.read_byte_fn = Hooks->read_byte_fn;
+    device.read_buf_fn = Hooks->read_buf_fn;
+}
+
+W5500_Drv_Hooks* Get_W5500_Hooks(void)
+{
+    if(device.write_byte_fn == NULL
+        || device.write_buf_fn == NULL
+        || device.read_byte_fn == NULL
+        || device.read_buf_fn == NULL)
+        return NULL;
+
+    return &device;
+}
 
     /* ----- Common Register Function ----- */
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_MR
-¹¦    ÄÜ £º Ä£Ê½ÉèÖÃ
-²Î    Êı £º Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_MR
+åŠŸ    èƒ½ ï¼š æ¨¡å¼è®¾ç½®
+å‚    æ•° ï¼š Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_MR( uint8_t Value )
 {
-    W5500_Write_Byte(MR, COMM_REG, Value);
+    device.write_byte_fn(MR, COMM_REG, Value);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_GAR
-¹¦    ÄÜ £º ÉèÖÃÍø¹Ø IPµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_GAR
+åŠŸ    èƒ½ ï¼š è®¾ç½®ç½‘å…³ IPåœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_GAR( const uint8_t *pData )
 {
-    W5500_Write_Buf(GAR0, COMM_REG, pData, 4);
+    device.write_buf_fn(GAR0, COMM_REG, pData, 4);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_GAR
-¹¦    ÄÜ £º ¶ÁÇøÍø¹Ø IPµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_GAR
+åŠŸ    èƒ½ ï¼š è¯»åŒºç½‘å…³ IPåœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Get_GAR( uint8_t *pData )
 {
-    W5500_Read_Buf(GAR0, COMM_REG, pData, 4);
+    device.read_buf_fn(GAR0, COMM_REG, pData, 4);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_SUBR
-¹¦    ÄÜ £º ÉèÖÃ×ÓÍøÑÚÂëµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_SUBR
+åŠŸ    èƒ½ ï¼š è®¾ç½®å­ç½‘æ©ç åœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_SUBR( const uint8_t *pData )
 {
-    W5500_Write_Buf(SUBR0, COMM_REG, pData, 4);
+    device.write_buf_fn(SUBR0, COMM_REG, pData, 4);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_SUBR
-¹¦    ÄÜ £º ¶ÁÈ¡×ÓÍøÑÚÂëµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_SUBR
+åŠŸ    èƒ½ ï¼š è¯»å–å­ç½‘æ©ç åœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Get_SUBR( uint8_t *pData )
 {
-    W5500_Read_Buf(SUBR0, COMM_REG, pData, 4);
+    device.read_buf_fn(SUBR0, COMM_REG, pData, 4);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_SHAR
-¹¦    ÄÜ £º ÉèÖÃÔ´ MACµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_SHAR
+åŠŸ    èƒ½ ï¼š è®¾ç½®æº MACåœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_SHAR( const uint8_t *pData )
 {
-    W5500_Write_Buf(SHAR0, COMM_REG, pData, 6);
+    device.write_buf_fn(SHAR0, COMM_REG, pData, 6);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_SHAR
-¹¦    ÄÜ £º ¶ÁÈ¡Ô´ MACµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_SHAR
+åŠŸ    èƒ½ ï¼š è¯»å–æº MACåœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Get_SHAR( uint8_t *pData )
 {
-    W5500_Read_Buf(SHAR0, COMM_REG, pData, 6);
+    device.read_buf_fn(SHAR0, COMM_REG, pData, 6);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_SIPR
-¹¦    ÄÜ £º ÉèÖÃÔ´ IPµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_SIPR
+åŠŸ    èƒ½ ï¼š è®¾ç½®æº IPåœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_SIPR( const uint8_t *pData )
 {
-    W5500_Write_Buf(SIPR0, COMM_REG, pData, 4);
+    device.write_buf_fn(SIPR0, COMM_REG, pData, 4);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_SIPR
-¹¦    ÄÜ £º ¶ÁÈ¡Ô´ IPµØÖ·
-²Î    Êı £º pData ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_SIPR
+åŠŸ    èƒ½ ï¼š è¯»å–æº IPåœ°å€
+å‚    æ•° ï¼š pData ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Get_SIPR( uint8_t *pData )
 {
-    W5500_Read_Buf(SIPR0, COMM_REG, pData, 4);
+    device.read_buf_fn(SIPR0, COMM_REG, pData, 4);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_IR
-¹¦    ÄÜ £º ¶Á IRÖĞ¶Ï
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º IR State ---- ÖĞ¶Ï×´Ì¬
+å‡½æ•°åç§° ï¼š Get_IR
+åŠŸ    èƒ½ ï¼š è¯» IRä¸­æ–­
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š IR State ---- ä¸­æ–­çŠ¶æ€
 *************************************************/
 uint8_t Get_IR(void)
 {
-    return W5500_Read_Byte(IR, COMM_REG);
+    return device.read_byte_fn(IR, COMM_REG);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Clean_IR
-¹¦    ÄÜ £º Çå IRÖĞ¶Ï
-²Î    Êı £º Mask >>>> IR register values
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Clean_IR
+åŠŸ    èƒ½ ï¼š æ¸… IRä¸­æ–­
+å‚    æ•° ï¼š Mask >>>> IR register values
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Clean_IR( uint8_t Mask )
 {
-    W5500_Write_Byte(IR, COMM_REG, ~Mask | Get_IR());
+    device.write_byte_fn(IR, COMM_REG, ~Mask | Get_IR());
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_RTR
-¹¦    ÄÜ £º ÉèÖÃÖØÊÔÊ±¼äÖµ
-²Î    Êı £º Value ---- Ê±¼äÖµ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_RTR
+åŠŸ    èƒ½ ï¼š è®¾ç½®é‡è¯•æ—¶é—´å€¼
+å‚    æ•° ï¼š Value ---- æ—¶é—´å€¼
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_RTR( uint16_t Value )
 {
-    W5500_Write_Byte(RTR0, COMM_REG, (uint8_t)(Value & 0xFF00) >> 8);
-    W5500_Write_Byte(RTR1, COMM_REG, (uint8_t)(Value & 0x00FF));
+    device.write_byte_fn(RTR0, COMM_REG, (uint8_t)((Value & 0xFF00) >> 8));
+    device.write_byte_fn(RTR1, COMM_REG, (uint8_t)(Value & 0x00FF));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_RCR
-¹¦    ÄÜ £º ÉèÖÃÖØÊÔ¼ÆÊıÖµ
-²Î    Êı £º Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_RCR
+åŠŸ    èƒ½ ï¼š è®¾ç½®é‡è¯•è®¡æ•°å€¼
+å‚    æ•° ï¼š Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_RCR( uint8_t Value )
 {
-    W5500_Write_Byte(RCR, COMM_REG, Value);
+    device.write_byte_fn(RCR, COMM_REG, Value);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_PHYCFGR
-¹¦    ÄÜ £º ¶ÁÈ¡ PHYCFGRÅäÖÃ
-²Î    Êı £º ÎŞ
-·µ »Ø Öµ £º PHYCFGR State ---- PHY×´Ì¬
+å‡½æ•°åç§° ï¼š Get_PHYCFGR
+åŠŸ    èƒ½ ï¼š è¯»å– PHYCFGRé…ç½®
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š PHYCFGR State ---- PHYçŠ¶æ€
 *************************************************/
+#include <stdio.h>
 uint8_t Get_PHYCFGR(void)
 {
-    return W5500_Read_Byte(PHYCFGR, COMM_REG);
+    return device.read_byte_fn(PHYCFGR, COMM_REG);
+}
+
+/************************************************
+å‡½æ•°åç§° ï¼š Get_ETH_Link
+åŠŸ    èƒ½ ï¼š è·å–ç½‘ç»œè¿æ¥çŠ¶æ€
+å‚    æ•° ï¼š æ— 
+è¿” å› å€¼ ï¼š ETH Link State ---- è¿æ¥çŠ¶æ€
+*************************************************/
+uint8_t Get_ETH_Link(void)
+{
+    return (Get_PHYCFGR() & LINK);
 }
 
     /* ----- Socket Register Function ----- */
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_MR
-¹¦    ÄÜ £º Ä£Ê½ÉèÖÃ
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_MR
+åŠŸ    èƒ½ ï¼š æ¨¡å¼è®¾ç½®
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_MR( uint8_t S, uint8_t Value )
 {
-    W5500_Write_Byte(Sn_MR, Sn_REG(S), Value);
+    device.write_byte_fn(Sn_MR, Sn_REG(S), Value);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_Sn_CR
-¹¦    ÄÜ £º ¶Á SocketÅäÖÃ
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º Sn_IR State ---- ÖĞ¶Ï×´Ì¬
+å‡½æ•°åç§° ï¼š Get_Sn_CR
+åŠŸ    èƒ½ ï¼š è¯» Socketé…ç½®
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š Sn_IR State ---- ä¸­æ–­çŠ¶æ€
 *************************************************/
 uint8_t Get_Sn_CR( uint8_t S )
 {
-    return W5500_Read_Byte(Sn_CR, Sn_REG(S));
+    return device.read_byte_fn(Sn_CR, Sn_REG(S));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_CR
-¹¦    ÄÜ £º Ğ´ SocketÅäÖÃ
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_CR
+åŠŸ    èƒ½ ï¼š å†™ Socketé…ç½®
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_CR( uint8_t S, uint8_t Value )
 {
-    W5500_Write_Byte(Sn_CR, Sn_REG(S), Value);
+    device.write_byte_fn(Sn_CR, Sn_REG(S), Value);
+    while(Get_Sn_CR(S));    // Wait to process the command
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_Sn_IR
-¹¦    ÄÜ £º ¶Á Sn_IRÖĞ¶Ï
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º Sn_IR State ---- ÖĞ¶Ï×´Ì¬
+å‡½æ•°åç§° ï¼š Get_Sn_IR
+åŠŸ    èƒ½ ï¼š è¯» Sn_IRä¸­æ–­
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š Sn_IR State ---- ä¸­æ–­çŠ¶æ€
 *************************************************/
 uint8_t Get_Sn_IR( uint8_t S )
 {
-    return W5500_Read_Byte(Sn_IR, Sn_REG(S));
+    return device.read_byte_fn(Sn_IR, Sn_REG(S));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_IR
-¹¦    ÄÜ £º Ğ´ Sn_IRÖĞ¶Ï
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_IR
+åŠŸ    èƒ½ ï¼š å†™ Sn_IRä¸­æ–­
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_IR( uint8_t S, uint8_t Value )
 {
-    W5500_Write_Byte(Sn_IR, Sn_REG(S), Value);
+    device.write_byte_fn(Sn_IR, Sn_REG(S), Value);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_Sn_SR
-¹¦    ÄÜ £º ¶Á Sn_SR×´Ì¬
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º Sn_SR State ---- ÖĞ¶Ï×´Ì¬
+å‡½æ•°åç§° ï¼š Get_Sn_SR
+åŠŸ    èƒ½ ï¼š è¯» Sn_SRçŠ¶æ€
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š Sn_SR State ---- ä¸­æ–­çŠ¶æ€
 *************************************************/
 uint8_t Get_Sn_SR( uint8_t S )
 {
-    return W5500_Read_Byte(Sn_SR, Sn_REG(S));
+    return device.read_byte_fn(Sn_SR, Sn_REG(S));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_PORT
-¹¦    ÄÜ £º ÉèÖÃ Socket n Ô´¶Ë¿Ú
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_PORT
+åŠŸ    èƒ½ ï¼š è®¾ç½® Socket n æºç«¯å£
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_PORT( uint8_t S, uint16_t Value )
 {
-    W5500_Write_Byte(Sn_PORT0, Sn_REG(S), (uint8_t)(Value & 0xFF00) >> 8);
-    W5500_Write_Byte(Sn_PORT0, Sn_REG(S), (uint8_t)(Value & 0x00FF));
+    device.write_byte_fn(Sn_PORT0, Sn_REG(S), (uint8_t)((Value & 0xFF00) >> 8));
+    device.write_byte_fn(Sn_PORT1, Sn_REG(S), (uint8_t)(Value & 0x00FF));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_DHAR
-¹¦    ÄÜ £º ÉèÖÃ Socket n Ä¿µÄ MACµØÖ·
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_DHAR
+åŠŸ    èƒ½ ï¼š è®¾ç½® Socket n ç›®çš„ MACåœ°å€
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_DHAR( uint8_t S, const uint8_t *pValue )
 {
-    W5500_Write_Buf(Sn_DHAR0, Sn_REG(S), pValue, 6);
+    device.write_buf_fn(Sn_DHAR0, Sn_REG(S), pValue, 6);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_DIPR
-¹¦    ÄÜ £º ÉèÖÃ Socket n Ä¿µÄ IPµØÖ·
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_DIPR
+åŠŸ    èƒ½ ï¼š è®¾ç½® Socket n ç›®çš„ IPåœ°å€
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_DIPR( uint8_t S, const uint8_t *pValue )
 {
-    W5500_Write_Buf(Sn_DIPR0, Sn_REG(S), pValue, 4);
+    device.write_buf_fn(Sn_DIPR0, Sn_REG(S), pValue, 4);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_DPORT
-¹¦    ÄÜ £º ÉèÖÃ Socket n Ä¿µÄ¶Ë¿Ú
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_DPORT
+åŠŸ    èƒ½ ï¼š è®¾ç½® Socket n ç›®çš„ç«¯å£
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_DPORT( uint8_t S, uint16_t Value )
 {
-    W5500_Write_Byte(Sn_DPORT0, Sn_REG(S), (uint8_t)(Value & 0xFF00) >> 8);
-    W5500_Write_Byte(Sn_DPORT0, Sn_REG(S), (uint8_t)(Value & 0x00FF));
+    device.write_byte_fn(Sn_DPORT0, Sn_REG(S), (uint8_t)((Value & 0xFF00) >> 8));
+    device.write_byte_fn(Sn_DPORT1, Sn_REG(S), (uint8_t)(Value & 0x00FF));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_MSSR
-¹¦    ÄÜ £º ÉèÖÃ TCP / UPD µÄ×î´ó´«Êäµ¥Ôª
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_MSSR
+åŠŸ    èƒ½ ï¼š è®¾ç½® TCP / UPD çš„æœ€å¤§ä¼ è¾“å•å…ƒ
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_MSSR( uint8_t S, uint16_t Value )
 {
-    W5500_Write_Byte(Sn_MSSR0, Sn_REG(S), (uint8_t)(Value & 0xFF00) >> 8);
-    W5500_Write_Byte(Sn_MSSR0, Sn_REG(S), (uint8_t)(Value & 0x00FF));
+    device.write_byte_fn(Sn_MSSR0, Sn_REG(S), (uint8_t)((Value & 0xFF00) >> 8));
+    device.write_byte_fn(Sn_MSSR0, Sn_REG(S), (uint8_t)(Value & 0x00FF));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_TTL
-¹¦    ÄÜ £º ÉèÖÃ Socket n IPÉú´æÊ±¼ä
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_TTL
+åŠŸ    èƒ½ ï¼š è®¾ç½® Socket n IPç”Ÿå­˜æ—¶é—´
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_TTL( uint8_t S, uint8_t Value )
 {
-    W5500_Write_Byte(Sn_IR, Sn_REG(S), Value);
+    device.write_byte_fn(Sn_IR, Sn_REG(S), Value);
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_Sn_Tx_FSR
-¹¦    ÄÜ £º ¶Á Socket n ¿ÕÏĞ·¢ËÍ»º´æ
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_Sn_Tx_FSR
+åŠŸ    èƒ½ ï¼š è¯» Socket n ç©ºé—²å‘é€ç¼“å­˜
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 uint16_t Get_Sn_Tx_FSR( uint8_t S )
 {
     uint16_t value = 0;
 
-    value = W5500_Read_Byte(Sn_TX_FSR0, Sn_REG(S));
-    value = (value << 8) + W5500_Read_Byte(Sn_TX_FSR1, Sn_REG(S));
+    value = device.read_byte_fn(Sn_TX_FSR0, Sn_REG(S));
+    value = (value << 8) + device.read_byte_fn(Sn_TX_FSR1, Sn_REG(S));
 
     return value;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_Sn_Rx_RSR
-¹¦    ÄÜ £º ¶Á Socket n ¿ÕÏĞ½ÓÊÕ»º´æ
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_Sn_Rx_RSR
+åŠŸ    èƒ½ ï¼š è¯» Socket n ç©ºé—²æ¥æ”¶ç¼“å­˜
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 uint16_t Get_Sn_Rx_RSR( uint8_t S )
 {
     uint16_t value = 0;
 
-    value = W5500_Read_Byte(Sn_RX_RSR0, Sn_REG(S));
-    value = (value << 8) + W5500_Read_Byte(Sn_RX_RSR1, Sn_REG(S));
+    value = device.read_byte_fn(Sn_RX_RSR0, Sn_REG(S));
+    value = (value << 8) + device.read_byte_fn(Sn_RX_RSR1, Sn_REG(S));
 
     return value;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_Tx_WR
-¹¦    ÄÜ £º Ğ´ Socket n ½ÓÊÕ¶ÁÖ¸Õë¼Ä´æÆ÷
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_Tx_WR
+åŠŸ    èƒ½ ï¼š å†™ Socket n æ¥æ”¶è¯»æŒ‡é’ˆå¯„å­˜å™¨
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_Tx_WR( uint8_t S, uint16_t Value )
 {
-    W5500_Write_Byte(Sn_RX_WR0, Sn_REG(S), (uint8_t)(Value & 0xFF00) >> 8);
-    W5500_Write_Byte(Sn_RX_WR1, Sn_REG(S), (uint8_t)(Value & 0x00FF));
+    device.write_byte_fn(Sn_TX_WR0, Sn_REG(S), (uint8_t)((Value & 0xFF00) >> 8));
+    device.write_byte_fn(Sn_TX_WR1, Sn_REG(S), (uint8_t)(Value & 0x00FF));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_Sn_Tx_WR
-¹¦    ÄÜ £º ¶Á Socket n ·¢ËÍ¶ÁÖ¸Õë¼Ä´æÆ÷
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_Sn_Tx_WR
+åŠŸ    èƒ½ ï¼š è¯» Socket n å‘é€è¯»æŒ‡é’ˆå¯„å­˜å™¨
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 uint16_t Get_Sn_Tx_WR( uint8_t S )
 {
     uint16_t value = 0;
 
-    value = W5500_Read_Byte(Sn_RX_WR0, Sn_REG(S));
-    value = (value << 8) + W5500_Read_Byte(Sn_RX_WR1, Sn_REG(S));
+    value = device.read_byte_fn(Sn_TX_WR0, Sn_REG(S));
+    value = (value << 8) + device.read_byte_fn(Sn_TX_WR1, Sn_REG(S));
 
     return value;
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Set_Sn_Rx_RD
-¹¦    ÄÜ £º Ğ´ Socket n ½ÓÊÕ¶ÁÖ¸Õë¼Ä´æÆ÷
-²Î    Êı £º S ---- Socket number
-            Value ---- Êı¾İ
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Set_Sn_Rx_RD
+åŠŸ    èƒ½ ï¼š å†™ Socket n æ¥æ”¶è¯»æŒ‡é’ˆå¯„å­˜å™¨
+å‚    æ•° ï¼š S ---- Socket number
+            Value ---- æ•°æ®
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 void Set_Sn_Rx_RD( uint8_t S, uint16_t Value )
 {
-    W5500_Write_Byte(Sn_RX_RD0, Sn_REG(S), (uint8_t)(Value & 0xFF00) >> 8);
-    W5500_Write_Byte(Sn_RX_RD1, Sn_REG(S), (uint8_t)(Value & 0x00FF));
+    device.write_byte_fn(Sn_RX_RD0, Sn_REG(S), (uint8_t)((Value & 0xFF00) >> 8));
+    device.write_byte_fn(Sn_RX_RD1, Sn_REG(S), (uint8_t)(Value & 0x00FF));
 }
 
 /************************************************
-º¯ÊıÃû³Æ £º Get_Sn_Rx_RD
-¹¦    ÄÜ £º ¶Á Socket n ½ÓÊÕ¶ÁÖ¸Õë¼Ä´æÆ÷
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º ÎŞ
+å‡½æ•°åç§° ï¼š Get_Sn_Rx_RD
+åŠŸ    èƒ½ ï¼š è¯» Socket n æ¥æ”¶è¯»æŒ‡é’ˆå¯„å­˜å™¨
+å‚    æ•° ï¼š S ---- Socket number
+è¿” å› å€¼ ï¼š æ— 
 *************************************************/
 uint16_t Get_Sn_Rx_RD( uint8_t S )
 {
     uint16_t value = 0;
 
-    value = W5500_Read_Byte(Sn_RX_RD0, Sn_REG(S));
-    value = (value << 8) + W5500_Read_Byte(Sn_RX_RD1, Sn_REG(S));
+    value = device.read_byte_fn(Sn_RX_RD0, Sn_REG(S));
+    value = (value << 8) + device.read_byte_fn(Sn_RX_RD1, Sn_REG(S));
 
     return value;
-}
-
-/************************************************
-º¯ÊıÃû³Æ £º Socket_Buf_Init
-¹¦    ÄÜ £º ¸ù¾İÊ¹ÓÃµÄÍ¨µÀÉèÖÃ·¢ËÍºÍ½ÓÊÕ»º³åÇø´óĞ¡
-²Î    Êı £º S ---- Socket number
-·µ »Ø Öµ £º ÎŞ
-*************************************************/
-void Socket_Buf_Init( uint8_t *Tx_size, uint8_t *Rx_size )
-{
-    uint8_t i;
-    uint16_t ssum = 0,rsum = 0;
-
-    for (i = 0 ;i < MAX_SOCK_NUM;i++)       // °´Ã¿¸öÍ¨µÀÉèÖÃ TxºÍ RxÄÚ´æµÄ´óĞ¡
-    {
-        W5500_Write_Byte(Sn_RXBUF_SIZE, Sn_REG(i), Tx_size[i]);
-        W5500_Write_Byte(Sn_TXBUF_SIZE, Sn_REG(i), Rx_size[i]);
-
-#ifdef _USART_DEBUG
-        printf("Tx_size[%d]: %d, Sn_TXBUF_SIZE = %d\r\n",i, Tx_size[i], IINCHIP_READ(Sn_TXMEM_SIZE(i)));
-        printf("Rx_size[%d]: %d, Sn_RXBUF_SIZE = %d\r\n",i, Rx_size[i], IINCHIP_READ(Sn_RXMEM_SIZE(i)));
-
-#endif /* _USART_DEBUG */
-
-        SSIZE[i] = (uint16_t)(0);
-        RSIZE[i] = (uint16_t)(0);
-
-        if (ssum <= 16384)
-        {
-            SSIZE[i] = (uint16_t)Tx_size[i]*(1024);
-        }
-
-        if (rsum <= 16384)
-        {
-            RSIZE[i]=(uint16_t)Rx_size[i]*(1024);
-        }
-        ssum += SSIZE[i];
-        rsum += RSIZE[i];
-    }
-
 }
 
 
